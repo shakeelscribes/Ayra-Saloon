@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-emerald-950 text-cream font-body antialiased;
+    background: #0d1f17;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0d1f17;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c9a84c;
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  /* Gold divider */
+  .gold-divider {
+    @apply w-20 h-0.5 mx-auto my-4;
+    background: linear-gradient(90deg, transparent, #c9a84c, transparent);
+  }
+
+  /* Glass card */
+  .glass-card {
+    background: rgba(26, 58, 42, 0.5);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(201, 168, 76, 0.2);
+    @apply rounded-2xl;
+  }
+
+  /* Gold button */
+  .btn-gold {
+    background: linear-gradient(135deg, #c9a84c 0%, #f0d080 50%, #a8862a 100%);
+    @apply text-emerald-950 font-semibold px-8 py-3 rounded-full transition-all duration-300;
+    background-size: 200% auto;
+  }
+  .btn-gold:hover {
+    background-position: right center;
+    box-shadow: 0 0 20px rgba(201, 168, 76, 0.5);
+    transform: translateY(-2px);
+  }
+
+  /* Outline gold button */
+  .btn-outline {
+    @apply border border-gold-500 text-gold-400 px-8 py-3 rounded-full transition-all duration-300 font-medium;
+  }
+  .btn-outline:hover {
+    @apply bg-gold-500 text-emerald-950;
+    box-shadow: 0 0 20px rgba(201, 168, 76, 0.3);
+  }
+
+  /* Form inputs */
+  .luxury-input {
+    @apply w-full bg-emerald-900 border border-emerald-700 text-cream px-4 py-3 rounded-xl 
+           focus:outline-none focus:border-gold-500 transition-colors duration-200 placeholder-emerald-600;
+  }
+
+  /* Section heading */
+  .section-title {
+    @apply text-4xl md:text-5xl font-display text-cream text-center;
+  }
+
+  /* Service card hover */
+  .service-card {
+    @apply glass-card p-6 cursor-pointer transition-all duration-300;
+  }
+  .service-card:hover {
+    border-color: rgba(201, 168, 76, 0.6);
+    box-shadow: 0 8px 32px rgba(201, 168, 76, 0.15);
+    transform: translateY(-4px);
+  }
+
+  /* Step indicator */
+  .step-dot {
+    @apply w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all duration-300;
+  }
+  .step-dot.active {
+    background: linear-gradient(135deg, #c9a84c, #f0d080);
+    @apply text-emerald-950;
+  }
+  .step-dot.completed {
+    @apply bg-emerald-700 text-gold-400;
+  }
+  .step-dot.inactive {
+    @apply bg-emerald-900 text-emerald-600 border border-emerald-700;
+  }
+}
+
+/* Particle / shimmer hero overlay */
+.hero-overlay {
+  background: radial-gradient(ellipse at center, rgba(201, 168, 76, 0.08) 0%, transparent 70%);
+}

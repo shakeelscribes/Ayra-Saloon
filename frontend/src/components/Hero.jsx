@@ -1,77 +1,136 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Star, Award, Clock } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
+import { motion, useInView, useReducedMotion, animate } from 'framer-motion'
+import { stats } from '../data/landing'
 
-const stats = [
-  { icon: Star, label: 'Happy Clients', value: '2,000+' },
-  { icon: Award, label: 'Years of Excellence', value: '12+' },
-  { icon: Clock, label: 'Services Offered', value: '20+' },
-]
+// Strong ease-out shared by the page's entrances
+const EASE_OUT = [0.16, 1, 0.3, 1]
+
+function CountUp({ value, suffix }) {
+  const ref = useRef(null)
+  const inView = useInView(ref, { margin: '-40px' })
+  const reduceMotion = useReducedMotion()
+  const [display, setDisplay] = useState(0)
+
+  useEffect(() => {
+    if (!inView) return
+    if (reduceMotion) {
+      setDisplay(value)
+      return
+    }
+    const controls = animate(0, value, {
+      duration: 1.1,
+      ease: EASE_OUT,
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    })
+    return () => controls.stop()
+  }, [inView, value, reduceMotion])
+
+  return (
+    <span ref={ref} className="font-display text-3xl md:text-4xl text-cream tabular-nums">
+      {display.toLocaleString('en-IN')}
+      <span className="text-gold-400">{suffix}</span>
+    </span>
+  )
+}
+
+// One masked line of the headline — reveals upward on load
+function HeadlineLine({ children, delay }) {
+  return (
+    <span className="block overflow-hidden pb-[0.08em] -mb-[0.08em]">
+      <motion.span
+        className="block"
+        initial={{ y: '110%' }}
+        animate={{ y: '0%' }}
+        transition={{ duration: 0.7, ease: EASE_OUT, delay }}
+      >
+        {children}
+      </motion.span>
+    </span>
+  )
+}
 
 export default function Hero() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Background layers */}
-      <div className="absolute inset-0 bg-luxury-gradient" />
-      <div className="absolute inset-0 hero-overlay" />
+    <section className="relative min-h-svh flex flex-col overflow-hidden">
+      {/* Full-bleed image */}
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: 'url(/images/luxury_salon_hero.jpg)' }}
+        aria-hidden="true"
+      />
+      {/* Scrim: heavier at the bottom-left where the type sits */}
+      <div
+        className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/55 to-emerald-950/30"
+        aria-hidden="true"
+      />
 
-      {/* Decorative gold orbs */}
-      <div className="absolute top-1/4 left-10 w-64 h-64 rounded-full opacity-10"
-        style={{ background: 'radial-gradient(circle, #c9a84c, transparent)' }} />
-      <div className="absolute bottom-1/4 right-10 w-96 h-96 rounded-full opacity-5"
-        style={{ background: 'radial-gradient(circle, #c9a84c, transparent)' }} />
+      {/* Content anchored to the lower-left — editorial, not template-centered */}
+      <div className="relative z-10 flex-1 flex items-end">
+        <div className="w-full max-w-7xl mx-auto px-6 pb-16 md:pb-24 pt-40">
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, ease: 'ease-out', delay: 0.1 }}
+            className="text-gold-400 text-xs md:text-sm font-medium tracking-[0.25em] uppercase mb-6"
+          >
+            Ayra Saloon · Samathanapuram, Tirunelveli
+          </motion.p>
 
-      {/* Decorative lines */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-b from-transparent to-gold-500 opacity-30" />
+          <h1 className="font-display text-cream text-[clamp(2.75rem,8vw,6.5rem)] leading-[1.02] tracking-[-0.02em] max-w-4xl">
+            <HeadlineLine delay={0.2}>Modern grooming,</HeadlineLine>
+            <HeadlineLine delay={0.32}>
+              <span className="italic text-gold-400">honest</span> prices.
+            </HeadlineLine>
+          </h1>
 
-      <div className="relative z-10 max-w-4xl mx-auto text-center px-6 animate-fade-in">
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 glass-card px-5 py-2 mb-8">
-          <span className="w-2 h-2 rounded-full bg-gold-400 animate-pulse" />
-          <span className="text-gold-400 text-sm font-medium tracking-widest uppercase">
-            Luxury Hair & Beauty
-          </span>
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.45 }}
+            className="mt-6 max-w-xl text-base md:text-lg leading-relaxed text-cream/80 font-light"
+          >
+            Tirunelveli's modern unisex saloon — expert stylists, up-to-date
+            equipment, and sharp grooming for everyone at prices that make
+            sense.
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.55 }}
+            className="mt-10 flex flex-col sm:flex-row gap-4"
+          >
+            <Link to="/book" className="btn-gold text-base inline-flex items-center justify-center gap-2">
+              Book your experience
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </Link>
+            <a href="#services" className="btn-outline text-base inline-flex items-center justify-center bg-emerald-950/40 backdrop-blur-sm">
+              Explore services
+            </a>
+          </motion.div>
         </div>
+      </div>
 
-        {/* Heading */}
-        <h1 className="font-display text-5xl md:text-7xl text-cream leading-tight mb-6">
-          Where Beauty
-          <span className="block italic text-gold-400">Meets Elegance</span>
-        </h1>
-
-        {/* Subtext */}
-        <p className="text-emerald-600 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-light">
-          Experience the finest grooming services in a sanctuary of luxury.
-          Our master stylists craft each look with artistry and precision.
-        </p>
-
-        {/* CTA Buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
-          <Link to="/book" id="hero-book-btn" className="btn-gold flex items-center gap-2 text-base !px-10 !py-4">
-            Book Your Experience
-            <ArrowRight className="w-5 h-5" />
-          </Link>
-          <a href="#services" className="btn-outline text-base !px-10 !py-4">
-            Explore Services
-          </a>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-6 max-w-2xl mx-auto">
-          {stats.map(({ icon: Icon, label, value }) => (
-            <div key={label} className="glass-card px-4 py-5 text-center">
-              <Icon className="w-5 h-5 text-gold-400 mx-auto mb-2" />
-              <p className="font-display text-2xl text-cream">{value}</p>
-              <p className="text-emerald-600 text-xs mt-1">{label}</p>
+      {/* Bottom strip: stats + scroll cue, separated by a hairline */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, ease: 'ease-out', delay: 0.6 }}
+        className="relative z-10 border-t border-cream/10"
+      >
+        <div className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-3 gap-6">
+          {stats.map(({ value, suffix, label }) => (
+            <div key={label}>
+              <CountUp value={value} suffix={suffix} />
+              <p className="mt-1 text-[11px] md:text-xs uppercase tracking-[0.18em] text-cream/60">
+                {label}
+              </p>
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Scroll indicator */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-50">
-        <span className="text-xs text-gold-400 tracking-widest uppercase">Scroll</span>
-        <div className="w-px h-12 bg-gradient-to-b from-gold-400 to-transparent" />
-      </div>
+      </motion.div>
     </section>
   )
 }

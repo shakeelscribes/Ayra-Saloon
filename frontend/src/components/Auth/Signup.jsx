@@ -46,7 +46,7 @@ export default function Signup() {
           </div>
           <h1 className="font-display text-3xl text-cream">Create Account</h1>
           <div className="gold-divider" />
-          <p className="text-emerald-600 text-sm mt-2">Join Ayra Saloon for a luxury experience</p>
+          <p className="text-emerald-600 text-sm mt-2">Join Ayra Saloon — modern grooming for everyone</p>
         </div>
 
         <div className="glass-card p-8">

@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -9,13 +11,33 @@
     padding: 0;
   }
 
-  html {
-    scroll-behavior: smooth;
+  :root {
+    /* Shared easing vocabulary — extended everywhere, never reinvented */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 
   body {
     @apply bg-emerald-950 text-cream font-body antialiased;
     background: #0d1f17;
+    /* Body-copy craft: Jost reads best at weight 400 on dark bg,
+       slightly opened tracking, relaxed leading */
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   ::-webkit-scrollbar {
@@ -45,25 +67,47 @@
     @apply rounded-2xl;
   }
 
-  /* Gold button */
+  /* Gold button — exact properties, never transition:all; press feedback at 160ms */
   .btn-gold {
     background: linear-gradient(135deg, #c9a84c 0%, #f0d080 50%, #a8862a 100%);
-    @apply text-emerald-950 font-semibold px-8 py-3 rounded-full transition-all duration-300;
     background-size: 200% auto;
+    @apply text-emerald-950 font-semibold px-8 py-3 rounded-full;
+    transition:
+      background-position 300ms ease,
+      box-shadow 300ms ease,
+      transform 160ms ease-out;
   }
   .btn-gold:hover {
     background-position: right center;
-    box-shadow: 0 0 20px rgba(201, 168, 76, 0.5);
-    transform: translateY(-2px);
+    box-shadow: 0 4px 24px rgba(201, 168, 76, 0.25);
+  }
+  .btn-gold:active {
+    transform: scale(0.97);
   }
 
   /* Outline gold button */
   .btn-outline {
-    @apply border border-gold-500 text-gold-400 px-8 py-3 rounded-full transition-all duration-300 font-medium;
+    @apply border border-gold-500 text-gold-400 px-8 py-3 rounded-full font-medium;
+    transition:
+      background-color 200ms ease,
+      color 200ms ease,
+      transform 160ms ease-out;
   }
   .btn-outline:hover {
     @apply bg-gold-500 text-emerald-950;
-    box-shadow: 0 0 20px rgba(201, 168, 76, 0.3);
+  }
+  .btn-outline:active {
+    transform: scale(0.97);
+  }
+
+  /* Image zoom on card hover — gated to real pointers so touch taps don't trigger it */
+  @media (hover: hover) and (pointer: fine) {
+    .group .img-zoom {
+      transition: transform 700ms var(--ease-out);
+    }
+    .group:hover .img-zoom {
+      transform: scale(1.03);
+    }
   }
 
   /* Form inputs */
@@ -77,9 +121,13 @@
     @apply text-4xl md:text-5xl font-display text-cream text-center;
   }
 
-  /* Service card hover */
+  /* Service card hover — exact properties, never transition:all */
   .service-card {
-    @apply glass-card p-6 cursor-pointer transition-all duration-300;
+    @apply glass-card p-6 cursor-pointer;
+    transition:
+      border-color 300ms var(--ease-out),
+      box-shadow 300ms var(--ease-out),
+      transform 300ms var(--ease-out);
   }
   .service-card:hover {
     border-color: rgba(201, 168, 76, 0.6);
@@ -87,9 +135,13 @@
     transform: translateY(-4px);
   }
 
-  /* Step indicator */
+  /* Step indicator — exact properties, never transition:all */
   .step-dot {
-    @apply w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all duration-300;
+    @apply w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm;
+    transition:
+      background-color 300ms var(--ease-out),
+      color 300ms var(--ease-out),
+      border-color 300ms var(--ease-out);
   }
   .step-dot.active {
     background: linear-gradient(135deg, #c9a84c, #f0d080);

@@ -46,14 +46,17 @@ from auth import get_password_hash
 async def seed_data():
     try:
         # Seed services
-        if await models.Service.count() == 0:
+        if await models.Service.count() < 8:
+            await models.Service.find_all().delete()
             services = [
-                models.Service(name="Classic Haircut", description="Precision cut styled to perfection", duration_mins=45, price=499, category="hair"),
+                models.Service(name="Signature Fade & Cut", description="Precision fade and cut styled to perfection", duration_mins=45, price=599, category="hair"),
+                models.Service(name="Classic Scissor Cut", description="Traditional scissor cut for a timeless look", duration_mins=30, price=399, category="hair"),
                 models.Service(name="Royal Shave", description="Hot towel shave with premium grooming products", duration_mins=30, price=349, category="grooming"),
-                models.Service(name="Bridal Package", description="Complete bridal hair & makeup experience", duration_mins=180, price=4999, category="bridal"),
+                models.Service(name="Bridal Elegance Package", description="Complete bridal hair & makeup experience", duration_mins=180, price=4999, category="bridal"),
+                models.Service(name="The Royal Groom Experience", description="Premium grooming and styling for the groom", duration_mins=120, price=2999, category="grooming"),
                 models.Service(name="Hair Color", description="Full color treatment with premium tints", duration_mins=120, price=1499, category="hair"),
-                models.Service(name="Beard Styling", description="Expert beard shaping & conditioning", duration_mins=30, price=249, category="grooming"),
-                models.Service(name="Deep Conditioning", description="Nourishing hair treatment & scalp massage", duration_mins=60, price=799, category="hair"),
+                models.Service(name="Custom Ink Design", description="Bespoke tattoo design and application", duration_mins=120, price=2999, category="tattoo"),
+                models.Service(name="Minimalist Tattoos", description="Fine-line and minimalist tattoo art", duration_mins=60, price=1499, category="tattoo"),
             ]
             await models.Service.insert_many(services)
 
@@ -81,3 +84,7 @@ async def seed_data():
 @app.get("/")
 def root():
     return {"message": "Welcome to Ayra Saloon API", "docs": "/docs"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -129,7 +129,7 @@ export default function MyAppointments() {
           <div className="glass-card p-12 text-center">
             <Calendar className="w-12 h-12 text-emerald-700 mx-auto mb-4" />
             <p className="font-display text-xl text-cream mb-2">No appointments found</p>
-            <p className="text-emerald-600 text-sm mb-6">Book your first luxury experience today</p>
+            <p className="text-emerald-600 text-sm mb-6">Book your first appointment today</p>
             <Link to="/book" className="btn-gold inline-block">Book Now</Link>
           </div>
         ) : (

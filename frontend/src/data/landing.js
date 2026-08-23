@@ -46,23 +46,113 @@ export const services = [
   },
 ]
 
+/* ── Marquee ticker ──────────────────────────────────────────────────────── */
+export const marqueeWords = [
+  'Precision Fades',
+  'Beard Sculpting',
+  'Hot-Towel Shaves',
+  'Hair Colour',
+  'Keratin & Smoothening',
+  'Bridal Glam',
+  'Fine-Line Tattoos',
+  'Kids’ Cuts',
+]
+
+/* ── Before / After gallery slots ────────────────────────────────────────── */
+/* PLACEHOLDER PAIRS — swap both files once transformation photos are ready.  */
+/* AI prompt pack for generating replacements is delivered separately.        */
+export const transformations = [
+  {
+    title: 'Precision Fade',
+    caption: 'Skin fade, textured top — 40 minutes in the chair.',
+    before: '/images/luxury_salon_hero.jpg',
+    after: '/images/service_hair.jpg',
+  },
+  {
+    title: 'Sharp Beard Sculpt',
+    caption: 'From week-old growth to a razor-lined finish.',
+    before: '/images/service_grooming.jpg',
+    after: '/images/luxury_salon_hero.jpg',
+  },
+  {
+    title: 'Bridal Glow',
+    caption: 'Consultation, trial, then the big day — flawless.',
+    before: '/images/service_bridal.jpg',
+    after: '/images/luxury_salon_hero.jpg',
+  },
+  {
+    title: 'Fresh Ink',
+    caption: 'Custom fine-line work by our resident artist.',
+    before: '/images/luxury_salon_hero.jpg',
+    after: '/images/service_tattoo.jpg',
+  },
+]
+
+/* ── Testimonials — expanded to six ─────────────────────────────────────── */
 export const testimonials = [
   {
     name: 'Arun Kumar',
     role: 'Regular since 2019 · Palayamkottai',
     avatar: '/images/avatar_1.jpg',
-    text: 'Best barber work in Tirunelveli, hands down. Sharp beard, clean finish, in and out in thirty minutes.',
+    text: 'Best barber work in Tirunelveli, hands down. I have been getting my fade from Raja for years — sharp lines, clean finish, in and out in thirty minutes.',
   },
   {
     name: 'Guru Prasad',
     role: 'Loyal Client · Samathanapuram',
     avatar: '/images/avatar_2.jpg',
-    text: 'Clean place, modern equipment, and the stylists actually listen. I bring my whole family here.',
+    text: 'Clean place, modern equipment, and the stylists actually listen to what you want instead of doing whatever they like. I bring my whole family here.',
   },
   {
     name: 'Priya Raghavan',
     role: 'Bridal Client · Tirunelveli',
     avatar: '/images/avatar_3.jpg',
-    text: 'They did my bridal makeup exactly how I had pictured it — professional, punctual and far more affordable than other quotes I got.',
+    text: 'They did my bridal makeup exactly how I had pictured it — the trial session made all the difference. Professional, punctual and far more affordable than other quotes I got.',
+  },
+  {
+    name: 'Karthik Raja',
+    role: 'First Tattoo · Tirunelveli Junction',
+    text: 'Ajay walked me through the whole design before touching needle to skin. Studio was spotless, sealed needles opened in front of me. Could not have asked for a better first tattoo.',
+  },
+  {
+    name: 'Mohammed Sait',
+    role: 'Keratin Treatment · Melapalayam',
+    text: 'They told me honestly that my hair did not need the costliest treatment — just the right one. Three months later it is still smooth. That kind of advice earns trust.',
+  },
+  {
+    name: 'Divya Shankar',
+    role: 'Colour & Highlights · Palayamkottai',
+    text: 'They studied my skin tone before suggesting the shade, not after. The highlights suit me better than what I originally asked for. Genuinely skilled people here.',
+  },
+]
+
+/* ── FAQ — drafted for brand voice; correct specifics as needed ──────────── */
+export const faqs = [
+  {
+    q: 'Do I need an appointment, or can I walk in?',
+    a: 'Walk-ins are welcome whenever a chair is free — but we strongly recommend booking ahead online. It takes under a minute, guarantees your slot, and lets us pair you with the right stylist.',
+  },
+  {
+    q: 'How long will my service take?',
+    a: 'A haircut usually takes 30–45 minutes. Hair colour runs about 1.5–2 hours, and keratin or smoothening treatments take 2–3 hours. We always tell you the expected time before starting, so you can plan your day.',
+  },
+  {
+    q: 'What products do you use?',
+    a: 'Only professional, salon-grade products — including ammonia-free colour options for sensitive scalps. We recommend what suits your hair type, not what costs the most.',
+  },
+  {
+    q: 'How does bridal makeup work?',
+    a: 'It starts with a consultation and a trial session, so your look is locked in well before the wedding day. Our partner bridal artists handle everything from engagement to reception looks, with packages built around your events.',
+  },
+  {
+    q: 'What if I need to cancel or reschedule?',
+    a: 'Life happens. Give us 24 hours notice if you can — a quick call or WhatsApp message is enough — and we will happily move your slot or offer it to another client. No cancellation fees.',
+  },
+  {
+    q: 'What payment methods do you accept?',
+    a: 'Cash, UPI and cards are all accepted. Whichever is easiest for you.',
+  },
+  {
+    q: 'Is Ayra only for men?',
+    a: 'You might know us best for men’s grooming — fades, beards, tattoos — but every service we offer is open to everyone: women’s styling, colour, treatments, bridal work and kids’ cuts too.',
   },
 ]

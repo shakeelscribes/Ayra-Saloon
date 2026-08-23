@@ -37,13 +37,13 @@ function ServiceRow({ service, index }) {
         <h3 className="font-display text-3xl md:text-4xl text-cream mt-4 tracking-tight">
           {service.name}
         </h3>
-        <p className="mt-4 text-cream/70 leading-relaxed font-light max-w-md">
+        <p className="mt-4 text-base md:text-[17px] text-cream/75 leading-relaxed max-w-md">
           {service.description}
         </p>
 
         <ul className="mt-6 space-y-2">
           {service.details.map((d) => (
-            <li key={d} className="flex items-center gap-3 text-sm text-cream/60">
+              <li key={d} className="flex items-center gap-3 text-sm text-cream/70">
               <span className="w-1 h-1 rounded-full bg-gold-400 shrink-0" aria-hidden="true" />
               {d}
             </li>

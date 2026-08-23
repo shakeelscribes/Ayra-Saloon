@@ -4,10 +4,15 @@ import { MotionConfig } from 'framer-motion'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
+import MarqueeTicker from './components/MarqueeTicker'
 import Services from './components/Services'
 import Philosophy from './components/Philosophy'
+import BeforeAfterGallery from './components/BeforeAfterGallery'
 import Testimonials from './components/Testimonials'
+import CTABand from './components/CTABand'
 import ContactLocation from './components/ContactLocation'
+import FAQAccordion from './components/FAQAccordion'
+import WhatsAppFloat from './components/WhatsAppFloat'
 import BookingComponent from './components/BookingComponent'
 import Login from './components/Auth/Login'
 import Signup from './components/Auth/Signup'
@@ -32,41 +37,76 @@ function LandingPage() {
   return (
     <>
       <Hero />
+      <MarqueeTicker />
       <Services />
       <Philosophy />
+      <BeforeAfterGallery />
       <Testimonials />
+      <CTABand />
       <ContactLocation />
-      {/* Footer */}
+      <FAQAccordion />
+      {/* Footer — four columns: brand, explore, hours, visit */}
       <footer className="border-t border-cream/10 px-6 pt-16 pb-10">
         <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-12">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-12 pb-12">
+            {/* Brand */}
+            <div className="md:col-span-5">
               <p className="font-display text-3xl text-cream tracking-tight">
                 Ayra <span className="italic text-gold-400">Saloon</span>
               </p>
-              <p className="mt-2 text-sm text-cream/50 font-light max-w-xs leading-relaxed">
-                1C1/1, Kayal Complex, Military Line,
-                Samathanapuram, Tirunelveli, Tamil Nadu.
-                Modern grooming for everyone.
+              <p className="mt-3 text-sm text-cream/50 font-light max-w-xs leading-relaxed">
+                Modern grooming for everyone — precision cuts, beard work,
+                colour, bridal styling and tattoos in the heart of
+                Tirunelveli.
               </p>
             </div>
-            <div className="flex gap-14 text-sm">
-              <div>
-                <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-3">Explore</p>
-                <ul className="space-y-2 text-cream/70">
-                  <li><a href="#services" className="transition-colors duration-200 hover:text-gold-400">Services</a></li>
-                  <li><Link to="/book" className="transition-colors duration-200 hover:text-gold-400">Book now</Link></li>
-                </ul>
-              </div>
-              <div>
-                <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-3">Hours</p>
-                <p className="text-cream/70 leading-relaxed">
-                  Mon – Sat<br />9 AM – 8 PM
+
+            {/* Explore */}
+            <div className="md:col-span-2">
+              <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-4">Explore</p>
+              <ul className="space-y-2.5 text-sm text-cream/75">
+                <li><a href="#services" className="transition-colors duration-200 hover:text-gold-400">Services</a></li>
+                <li><Link to="/book" className="transition-colors duration-200 hover:text-gold-400">Book now</Link></li>
+                <li><Link to="/my-appointments" className="transition-colors duration-200 hover:text-gold-400">My bookings</Link></li>
+              </ul>
+            </div>
+
+            {/* Hours */}
+            <div className="md:col-span-2">
+              <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-4">Hours</p>
+              <ul className="space-y-2.5 text-sm text-cream/75">
+                <li>Mon – Sat · 9 AM – 8 PM</li>
+                <li>Sunday · By appointment</li>
+              </ul>
+            </div>
+
+            {/* Visit */}
+            <div className="md:col-span-3">
+              <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-4">Visit us</p>
+              <address className="not-italic space-y-2.5 text-sm text-cream/75 leading-relaxed">
+                <p>
+                  1C1/1, Kayal Complex, Military Line,
+                  Samathanapuram, Tirunelveli,
+                  Tamil Nadu 627011
                 </p>
-              </div>
+                <p>
+                  <a href="tel:+918270606750" className="transition-colors duration-200 hover:text-gold-400">+91 82706 06750</a>
+                </p>
+                <p>
+                  <a
+                    href="https://maps.app.goo.gl/QLcLJ9cR52dpPg3b7"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gold-400 transition-colors duration-200 hover:text-gold-300"
+                  >
+                    Get directions →
+                  </a>
+                </p>
+              </address>
             </div>
           </div>
-          <div className="pt-6 border-t border-cream/10 flex flex-col sm:flex-row justify-between gap-2 text-xs text-cream/40">
+
+          <div className="pt-6 border-t border-cream/10 flex flex-col sm:flex-row justify-between gap-2 text-xs text-cream/50">
             <p>© {new Date().getFullYear()} Ayra Saloon. All rights reserved.</p>
             <p>Tirunelveli, Tamil Nadu, India</p>
           </div>
@@ -96,6 +136,7 @@ function AppShell() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <WhatsAppFloat />
     </div>
   )
 }

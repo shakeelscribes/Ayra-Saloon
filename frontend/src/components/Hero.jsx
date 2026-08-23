@@ -89,7 +89,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.45 }}
-            className="mt-6 max-w-xl text-base md:text-lg leading-relaxed text-cream/80 font-light"
+            className="mt-6 max-w-xl text-base md:text-lg leading-relaxed text-cream/85"
           >
             Tirunelveli's modern unisex saloon — expert stylists, up-to-date
             equipment, and sharp grooming for everyone at prices that make
@@ -124,7 +124,7 @@ export default function Hero() {
           {stats.map(({ value, suffix, label }) => (
             <div key={label}>
               <CountUp value={value} suffix={suffix} />
-              <p className="mt-1 text-[11px] md:text-xs uppercase tracking-[0.18em] text-cream/60">
+              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-cream/70">
                 {label}
               </p>
             </div>

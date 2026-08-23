@@ -21,8 +21,8 @@ export default {
         cream: '#faf6ee',
       },
       fontFamily: {
-        display: ['"Playfair Display"', 'serif'],
-        body: ['Inter', 'sans-serif'],
+        display: ['"Cormorant Garamond"', 'serif'],
+        body: ['Jost', '"Segoe UI"', '-apple-system', 'sans-serif'],
       },
       backgroundImage: {
         'luxury-gradient': 'linear-gradient(135deg, #0d1f17 0%, #1a3a2a 50%, #0d1f17 100%)',

@@ -28,16 +28,16 @@ export default function Navbar() {
     { label: 'Book Now', href: '/book' },
   ]
 
+  const navMaterial = scrolled
+    ? 'bg-emerald-950/70 backdrop-blur-xl [backdrop-filter:blur(20px)_saturate(180%)] border-b border-gold-500/10 shadow-lg shadow-black/20'
+    : 'bg-transparent border-b border-transparent'
+
   return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-        scrolled ? 'bg-emerald-950/95 backdrop-blur-md shadow-lg shadow-black/20' : 'bg-transparent'
-      }`}
-    >
+    <nav className={`fixed top-0 left-0 right-0 z-50 transition-[background-color,border-color,box-shadow] duration-300 ${navMaterial}`}>
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-full bg-gold-gradient flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+          <div className="w-10 h-10 rounded-full bg-gold-gradient flex items-center justify-center">
             <Scissors className="w-5 h-5 text-emerald-950" />
           </div>
           <span className="font-display text-2xl text-cream tracking-wide">

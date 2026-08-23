@@ -94,3 +94,7 @@ ayra_saloon.db
 
 start-backend.bat
 start-frontend.bat
+
+.agents
+
+skills-lock.json

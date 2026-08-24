@@ -60,9 +60,13 @@ export default function Hero() {
         style={{ backgroundImage: 'url(/images/luxury_salon_hero.jpg)' }}
         aria-hidden="true"
       />
-      {/* Scrim: heavier at the bottom-left where the type sits */}
+      {/* Scrim: dual layer — vertical base + left-side shield where the type sits */}
       <div
-        className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/55 to-emerald-950/30"
+        className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/70 to-emerald-950/35"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-0 bg-gradient-to-r from-emerald-950/85 via-emerald-950/25 to-transparent"
         aria-hidden="true"
       />
 

@@ -65,26 +65,26 @@ export const transformations = [
   {
     title: 'Precision Fade',
     caption: 'Skin fade, textured top — 40 minutes in the chair.',
-    before: '/images/luxury_salon_hero.jpg',
-    after: '/images/service_hair.jpg',
+    before: '/images/ba_fade_before.jpg',
+    after: '/images/ba_fade_after.jpg',
   },
   {
     title: 'Sharp Beard Sculpt',
     caption: 'From week-old growth to a razor-lined finish.',
-    before: '/images/service_grooming.jpg',
-    after: '/images/luxury_salon_hero.jpg',
+    before: '/images/ba_beard_before.jpg',
+    after: '/images/ba_beard_after.jpg',
   },
   {
     title: 'Bridal Glow',
     caption: 'Consultation, trial, then the big day — flawless.',
-    before: '/images/service_bridal.jpg',
-    after: '/images/luxury_salon_hero.jpg',
+    before: '/images/ba_bridal_before.jpg',
+    after: '/images/ba_bridal_after.jpg',
   },
   {
     title: 'Fresh Ink',
     caption: 'Custom fine-line work by our resident artist.',
-    before: '/images/luxury_salon_hero.jpg',
-    after: '/images/service_tattoo.jpg',
+    before: '/images/ba_ink_before.jpg',
+    after: '/images/ba_ink_after.jpg',
   },
 ]
 
@@ -111,16 +111,19 @@ export const testimonials = [
   {
     name: 'Karthik Raja',
     role: 'First Tattoo · Tirunelveli Junction',
+    avatar: '/images/avatar_4.jpg',
     text: 'Ajay walked me through the whole design before touching needle to skin. Studio was spotless, sealed needles opened in front of me. Could not have asked for a better first tattoo.',
   },
   {
     name: 'Mohammed Sait',
     role: 'Keratin Treatment · Melapalayam',
+    avatar: '/images/avatar_5.jpg',
     text: 'They told me honestly that my hair did not need the costliest treatment — just the right one. Three months later it is still smooth. That kind of advice earns trust.',
   },
   {
     name: 'Divya Shankar',
     role: 'Colour & Highlights · Palayamkottai',
+    avatar: '/images/avatar_6.jpg',
     text: 'They studied my skin tone before suggesting the shade, not after. The highlights suit me better than what I originally asked for. Genuinely skilled people here.',
   },
 ]

@@ -83,8 +83,8 @@ export default function Philosophy() {
         >
           <div className="aspect-[3/4] overflow-hidden rounded-2xl">
             <img
-              src="/images/luxury_salon_hero.jpg"
-              alt="Bright modern interior of Ayra Saloon, Tirunelveli, with professional styling stations"
+              src="/images/philosophy_interior.jpg"
+              alt="Warm modern interior of Ayra Saloon, Tirunelveli, with professional styling stations"
               loading="lazy"
               className="w-full h-full object-cover"
             />

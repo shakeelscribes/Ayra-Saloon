@@ -111,14 +111,17 @@ export function ComparisonSlider({
         isHorizontal ? "cursor-ew-resize" : "cursor-ns-resize",
         className
       )}>
-      <div className="size-full">{after}</div>
+      {/* Base layer: BEFORE — always painted underneath */}
+      <div className="size-full">{before}</div>
 
+      {/* Top layer: AFTER — clipped from the right, so dragging the handle
+          left grows the before state and dragging right grows the after state */}
       <div
         className={cn("absolute inset-0", dragging
           ? ""
           : "transition-[clip-path] duration-150 ease-out motion-reduce:transition-none")}
         style={{ clipPath }}>
-        {before}
+        {after}
       </div>
 
       <div

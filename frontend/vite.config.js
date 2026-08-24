@@ -11,6 +11,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Allow any ngrok-free.app host (free-tier URLs change on every restart)
+    allowedHosts: ['*.ngrok-free.app', '.ngrok-free.app'],
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

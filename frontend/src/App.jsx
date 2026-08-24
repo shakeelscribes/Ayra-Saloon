@@ -14,6 +14,9 @@ import ContactLocation from './components/ContactLocation'
 import FAQAccordion from './components/FAQAccordion'
 import WhatsAppFloat from './components/WhatsAppFloat'
 import BookingComponent from './components/BookingComponent'
+import ServicesPage from './pages/ServicesPage'
+import StylistsPage from './pages/StylistsPage'
+import StylistProfilePage from './pages/StylistProfilePage'
 import Login from './components/Auth/Login'
 import Signup from './components/Auth/Signup'
 import MyAppointments from './components/MyAppointments'
@@ -65,7 +68,8 @@ function LandingPage() {
             <div className="md:col-span-2">
               <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-4">Explore</p>
               <ul className="space-y-2.5 text-sm text-cream/75">
-                <li><a href="#services" className="transition-colors duration-200 hover:text-gold-400">Services</a></li>
+                <li><Link to="/services" className="transition-colors duration-200 hover:text-gold-400">Services</Link></li>
+                <li><Link to="/stylists" className="transition-colors duration-200 hover:text-gold-400">Our team</Link></li>
                 <li><Link to="/book" className="transition-colors duration-200 hover:text-gold-400">Book now</Link></li>
                 <li><Link to="/my-appointments" className="transition-colors duration-200 hover:text-gold-400">My bookings</Link></li>
               </ul>
@@ -123,6 +127,9 @@ function AppShell() {
       <Navbar />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/services" element={<ServicesPage />} />
+        <Route path="/stylists" element={<StylistsPage />} />
+        <Route path="/stylists/:slug" element={<StylistProfilePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/book" element={<BookingComponent />} />

@@ -1,39 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
-import { motion, useInView, useReducedMotion, animate } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { stats } from '../data/landing'
+import StatCounter from './StatCounter'
 
 // Strong ease-out shared by the page's entrances
 const EASE_OUT = [0.16, 1, 0.3, 1]
-
-function CountUp({ value, suffix }) {
-  const ref = useRef(null)
-  const inView = useInView(ref, { margin: '-40px' })
-  const reduceMotion = useReducedMotion()
-  const [display, setDisplay] = useState(0)
-
-  useEffect(() => {
-    if (!inView) return
-    if (reduceMotion) {
-      setDisplay(value)
-      return
-    }
-    const controls = animate(0, value, {
-      duration: 1.1,
-      ease: EASE_OUT,
-      onUpdate: (v) => setDisplay(Math.round(v)),
-    })
-    return () => controls.stop()
-  }, [inView, value, reduceMotion])
-
-  return (
-    <span ref={ref} className="font-display text-3xl md:text-4xl text-cream tabular-nums">
-      {display.toLocaleString('en-IN')}
-      <span className="text-gold-400">{suffix}</span>
-    </span>
-  )
-}
 
 // One masked line of the headline — reveals upward on load
 function HeadlineLine({ children, delay }) {
@@ -127,7 +99,11 @@ export default function Hero() {
         <div className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-3 gap-6">
           {stats.map(({ value, suffix, label }) => (
             <div key={label}>
-              <CountUp value={value} suffix={suffix} />
+              <StatCounter
+                value={value}
+                suffix={suffix}
+                className="font-display text-3xl md:text-4xl text-cream"
+              />
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-cream/70">
                 {label}
               </p>

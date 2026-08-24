@@ -228,6 +228,15 @@
   background: radial-gradient(ellipse at center, rgba(201, 168, 76, 0.08) 0%, transparent 70%);
 }
 
+/* Global utility: hide scrollbars on horizontal scrollers */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* WhatsApp float — hover lift gated to real pointers only */
 @media (hover: hover) and (pointer: fine) {
   .wa-float:hover {

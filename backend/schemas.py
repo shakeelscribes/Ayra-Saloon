@@ -43,6 +43,7 @@ class StylistOut(BaseModel):
     speciality: Optional[str]
     bio: Optional[str]
     experience_years: int
+    categories: List[str] = []
     model_config = {"from_attributes": True}
 
 # ── Bookings ──────────────────────────────────────────────────────────────────

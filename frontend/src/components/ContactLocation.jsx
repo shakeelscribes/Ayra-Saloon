@@ -62,7 +62,7 @@ export default function ContactLocation() {
                 </div>
                 <div>
                   <h3 className="text-cream font-medium">{title}</h3>
-                  <p className="text-cream/60 mt-1 leading-relaxed">{body}</p>
+                  <p className="text-cream/75 mt-1 leading-relaxed">{body}</p>
                 </div>
               </div>
             ))}
@@ -82,7 +82,7 @@ export default function ContactLocation() {
           </p>
 
           <div className="mt-10 pt-8 border-t border-cream/10">
-            <p className="text-cream/70 leading-relaxed mb-8">
+            <p className="text-cream/75 leading-relaxed mb-8">
               First visit? Book online in under a minute and our team will hold
               your slot — walk-ins welcome when the chair is free.
             </p>

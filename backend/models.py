@@ -1,7 +1,7 @@
 from beanie import Document, PydanticObjectId
 from pydantic import Field
 import enum
-from typing import Optional
+from typing import Optional, List
 
 class BookingStatus(str, enum.Enum):
     pending = "pending"
@@ -36,6 +36,7 @@ class Stylist(Document):
     speciality: Optional[str] = None
     bio: Optional[str] = None
     experience_years: int = 1
+    categories: List[str] = Field(default_factory=list)  # service categories this stylist handles
 
     class Settings:
         name = "stylists"

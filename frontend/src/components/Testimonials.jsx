@@ -32,7 +32,7 @@ export default function Testimonials() {
                     <Star key={s} className="w-3.5 h-3.5 fill-gold-400 text-gold-400" aria-hidden="true" />
                   ))}
                 </div>
-                <blockquote className="text-cream/80 leading-relaxed font-light">
+                <blockquote className="text-cream/85 leading-relaxed md:text-lg">
                   “{text}”
                 </blockquote>
               </div>
@@ -54,7 +54,7 @@ export default function Testimonials() {
                 )}
                 <span>
                   <span className="block text-cream font-medium">{name}</span>
-                  <span className="block text-cream/50 text-sm mt-0.5">{role}</span>
+                  <span className="block text-cream/60 text-sm mt-0.5">{role}</span>
                 </span>
               </figcaption>
             </ScrollEntrance>

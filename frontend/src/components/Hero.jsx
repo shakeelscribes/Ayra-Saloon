@@ -1,39 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
-import { motion, useInView, useReducedMotion, animate } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { stats } from '../data/landing'
+import StatCounter from './StatCounter'
 
 // Strong ease-out shared by the page's entrances
 const EASE_OUT = [0.16, 1, 0.3, 1]
-
-function CountUp({ value, suffix }) {
-  const ref = useRef(null)
-  const inView = useInView(ref, { margin: '-40px' })
-  const reduceMotion = useReducedMotion()
-  const [display, setDisplay] = useState(0)
-
-  useEffect(() => {
-    if (!inView) return
-    if (reduceMotion) {
-      setDisplay(value)
-      return
-    }
-    const controls = animate(0, value, {
-      duration: 1.1,
-      ease: EASE_OUT,
-      onUpdate: (v) => setDisplay(Math.round(v)),
-    })
-    return () => controls.stop()
-  }, [inView, value, reduceMotion])
-
-  return (
-    <span ref={ref} className="font-display text-3xl md:text-4xl text-cream tabular-nums">
-      {display.toLocaleString('en-IN')}
-      <span className="text-gold-400">{suffix}</span>
-    </span>
-  )
-}
 
 // One masked line of the headline — reveals upward on load
 function HeadlineLine({ children, delay }) {
@@ -60,9 +32,13 @@ export default function Hero() {
         style={{ backgroundImage: 'url(/images/luxury_salon_hero.jpg)' }}
         aria-hidden="true"
       />
-      {/* Scrim: heavier at the bottom-left where the type sits */}
+      {/* Scrim: dual layer — vertical base + left-side shield where the type sits */}
       <div
-        className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/55 to-emerald-950/30"
+        className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/70 to-emerald-950/35"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-0 bg-gradient-to-r from-emerald-950/85 via-emerald-950/25 to-transparent"
         aria-hidden="true"
       />
 
@@ -89,7 +65,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.45 }}
-            className="mt-6 max-w-xl text-base md:text-lg leading-relaxed text-cream/80 font-light"
+            className="mt-6 max-w-xl text-base md:text-lg leading-relaxed text-cream/85"
           >
             Tirunelveli's modern unisex saloon — expert stylists, up-to-date
             equipment, and sharp grooming for everyone at prices that make
@@ -123,8 +99,12 @@ export default function Hero() {
         <div className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-3 gap-6">
           {stats.map(({ value, suffix, label }) => (
             <div key={label}>
-              <CountUp value={value} suffix={suffix} />
-              <p className="mt-1 text-[11px] md:text-xs uppercase tracking-[0.18em] text-cream/60">
+              <StatCounter
+                value={value}
+                suffix={suffix}
+                className="font-display text-3xl md:text-4xl text-cream"
+              />
+              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-cream/70">
                 {label}
               </p>
             </div>

@@ -1,20 +1,48 @@
+@import "tw-animate-css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-
 
 @layer base {
   * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    @apply border-border;
   }
 
   :root {
     /* Shared easing vocabulary — extended everywhere, never reinvented */
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+    /* shadcn tokens mapped to the Ayra brand (single dark theme) */
+    --background: #0d1f17;
+    --foreground: #faf6ee;
+    --card: #1a3a2a;
+    --card-foreground: #faf6ee;
+    --popover: #1a3a2a;
+    --popover-foreground: #faf6ee;
+    --primary: #c9a84c;
+    --primary-foreground: #0d1f17;
+    --secondary: #1e4a35;
+    --secondary-foreground: #faf6ee;
+    --muted: #14291f;
+    --muted-foreground: #9fb3a8;
+    --accent: #2a5c42;
+    --accent-foreground: #faf6ee;
+    --destructive: #ef4444;
+    --destructive-foreground: #faf6ee;
+    --border: rgba(201, 168, 76, 0.22);
+    --input: rgba(201, 168, 76, 0.22);
+    --ring: #c9a84c;
+    --chart-1: #c9a84c;
+    --chart-2: #3a7a58;
+    --chart-3: #f0d080;
+    --chart-4: #2a5c42;
+    --chart-5: #a8862a;
+    --radius: 1rem;
   }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -24,7 +52,7 @@
   }
 
   body {
-    @apply bg-emerald-950 text-cream font-body antialiased;
+    @apply font-body antialiased bg-background text-foreground;
     background: #0d1f17;
     /* Body-copy craft: Jost reads best at weight 400 on dark bg,
        slightly opened tracking, relaxed leading */
@@ -49,6 +77,46 @@
   ::-webkit-scrollbar-thumb {
     background: #c9a84c;
     border-radius: 3px;
+  }
+  .theme {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+  }
+  .dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+  }
+  html {
+    @apply font-sans;
   }
 }
 
@@ -158,4 +226,21 @@
 /* Particle / shimmer hero overlay */
 .hero-overlay {
   background: radial-gradient(ellipse at center, rgba(201, 168, 76, 0.08) 0%, transparent 70%);
+}
+
+/* Global utility: hide scrollbars on horizontal scrollers */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* WhatsApp float — hover lift gated to real pointers only */
+@media (hover: hover) and (pointer: fine) {
+  .wa-float:hover {
+    transform: scale(1.06);
+    transition-duration: 150ms;
+  }
 }

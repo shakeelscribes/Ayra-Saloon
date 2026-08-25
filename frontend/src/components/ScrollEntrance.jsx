@@ -19,6 +19,13 @@ export default function ScrollEntrance({
   ease = [0.16, 1, 0.3, 1],
   hiddenState = { opacity: 0, y: 24 },
   visibleState = { opacity: 1, y: 0 },
+  /**
+   * Where (as a fraction of viewport height, from the top) the entrance fires.
+   * 1 = the moment the element peeks above the viewport bottom (default).
+   * 0.7 = waits until the element is ~30% up the screen — use for tall/centered
+   * elements whose trigger would otherwise fire long before they're looked at.
+   */
+  trigger = 1,
 }) {
   const ref = useRef(null)
   const [belowViewport, setBelowViewport] = useState(true)
@@ -29,7 +36,7 @@ export default function ScrollEntrance({
     let raf = 0
     const update = () => {
       raf = 0
-      setBelowViewport(el.getBoundingClientRect().top >= window.innerHeight)
+      setBelowViewport(el.getBoundingClientRect().top >= window.innerHeight * trigger)
     }
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update)
@@ -42,7 +49,7 @@ export default function ScrollEntrance({
       window.removeEventListener('resize', schedule)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [])
+  }, [trigger])
 
   const Tag = motion[as] || motion.div
 

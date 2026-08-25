@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   Scissors, User, Calendar, Clock, CheckCircle2,
   ChevronRight, ChevronLeft, ArrowRight, Sparkles, Crown, Palette, Droplets,
@@ -10,6 +11,7 @@ import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
 const STEPS = ['Service', 'Stylist & Time', 'Confirm']
+const EASE_OUT = [0.16, 1, 0.3, 1]
 
 const categoryIcons = {
   hair: Scissors, grooming: SprayCan, bridal: Crown,
@@ -26,7 +28,7 @@ function StepIndicator({ current }) {
             <div className={`step-dot ${i < current ? 'completed' : i === current ? 'active' : 'inactive'}`}>
               {i < current ? <CheckCircle2 className="w-5 h-5" /> : i + 1}
             </div>
-            <span className={`text-xs font-medium hidden sm:block ${i === current ? 'text-gold-400' : 'text-emerald-600'}`}>
+            <span className={`text-xs font-medium hidden sm:block ${i === current ? 'text-gold-400' : 'text-emerald-300'}`}>
               {label}
             </span>
           </div>
@@ -42,9 +44,9 @@ function StepIndicator({ current }) {
 // ── Step 1 : Choose Service ───────────────────────────────────────────────────
 function ServiceStep({ services, selected, onSelect, lockedStylist, allStylists }) {
   return (
-    <div className="animate-slide-up">
+    <div>
       <h2 className="font-display text-3xl text-cream text-center mb-2">Choose a Service</h2>
-      <p className="text-emerald-600 text-center mb-8 text-sm">
+      <p className="text-emerald-300 text-center mb-8 text-sm">
         {lockedStylist
           ? `Booking with ${lockedStylist.name} — pick what they'll do for you`
           : "Select the treatment you'd like to experience"}
@@ -83,11 +85,11 @@ function ServiceStep({ services, selected, onSelect, lockedStylist, allStylists 
                     <h3 className="font-semibold text-cream">{svc.name}</h3>
                     {isSelected && <CheckCircle2 className="w-4 h-4 text-gold-400 flex-shrink-0" />}
                   </div>
-                  <p className="text-emerald-600 text-xs mt-1 leading-relaxed">{svc.description}</p>
+                  <p className="text-emerald-300 text-xs mt-1 leading-relaxed">{svc.description}</p>
                   <div className="flex items-center gap-3 mt-3">
                     <span className="text-gold-400 font-semibold">₹{svc.price}</span>
-                    <span className="text-emerald-700 text-xs">•</span>
-                    <span className="text-emerald-600 text-xs flex items-center gap-1">
+                    <span className="text-emerald-400 text-xs">•</span>
+                    <span className="text-emerald-300 text-xs flex items-center gap-1">
                       <Clock className="w-3 h-3" />{svc.duration_mins} min
                     </span>
                   </div>
@@ -173,7 +175,7 @@ function ScheduleStep({
   // Bridal: partner artists handle it outside the online flow
   if (isBridal) {
     return (
-      <div className="animate-slide-up space-y-6 text-center py-8">
+      <div className="space-y-6 text-center py-8">
         <div className="w-16 h-16 rounded-full bg-gold-gradient flex items-center justify-center mx-auto">
           <Crown className="w-8 h-8 text-emerald-950" />
         </div>
@@ -186,16 +188,16 @@ function ScheduleStep({
           <Phone className="w-4 h-4" aria-hidden="true" />
           Call +91 82706 06750
         </a>
-        <p className="text-emerald-600 text-xs">Consultations are free · Mon–Sat, 9 AM – 8 PM</p>
+        <p className="text-emerald-300 text-xs">Consultations are free · Open all week, 10 AM – 9 PM</p>
       </div>
     )
   }
 
   return (
-    <div className="animate-slide-up space-y-8">
+    <div className="space-y-8">
       <div className="text-center">
         <h2 className="font-display text-3xl text-cream mb-2">Pick Your Stylist & Time</h2>
-        <p className="text-emerald-600 text-sm">
+        <p className="text-emerald-300 text-sm">
           {selectedService
             ? `Who should do your ${selectedService.name.toLowerCase()}?`
             : 'Choose an expert and your preferred schedule'}
@@ -241,7 +243,7 @@ function ScheduleStep({
                   <User className="w-5 h-5 text-gold-400" />
                 </div>
                 <p className="font-semibold text-cream text-sm">{st.name}</p>
-                <p className="text-emerald-600 text-xs mt-1">{st.speciality}</p>
+                <p className="text-emerald-300 text-xs mt-1">{st.speciality}</p>
                 <p className="text-gold-400 text-xs mt-1">{st.experience_years} yrs exp.</p>
               </button>
             ))}
@@ -262,7 +264,7 @@ function ScheduleStep({
               </span>
               <span className="flex-1">
                 <span className="block font-semibold text-cream text-sm">No preference</span>
-                <span className="block text-emerald-600 text-xs mt-0.5">
+                <span className="block text-emerald-300 text-xs mt-0.5">
                   Book the first available chair for your slot
                 </span>
               </span>
@@ -332,13 +334,13 @@ function ScheduleStep({
                 <button
                   key={slot}
                   disabled
-                  className="py-2.5 rounded-xl text-sm font-medium bg-emerald-950 text-emerald-700 border border-emerald-800 cursor-not-allowed line-through"
+                  className="py-2.5 rounded-xl text-sm font-medium bg-emerald-950 text-emerald-400 border border-emerald-800 cursor-not-allowed line-through"
                 >
                   {formatSlot(slot)}
                 </button>
               ))}
               {availability.available.length === 0 && availability.booked.length === 0 && (
-                <p className="text-emerald-600 col-span-5 text-sm">No slots available for this date.</p>
+                <p className="text-emerald-300 col-span-5 text-sm">No slots available for this date.</p>
               )}
             </div>
           )}
@@ -366,14 +368,14 @@ function ConfirmStep({ service, stylist, date, timeSlot, notes, setNotes }) {
   ]
 
   return (
-    <div className="animate-slide-up">
+    <div>
       <h2 className="font-display text-3xl text-cream text-center mb-2">Confirm Booking</h2>
-      <p className="text-emerald-600 text-center text-sm mb-8">Review your appointment details</p>
+      <p className="text-emerald-300 text-center text-sm mb-8">Review your appointment details</p>
 
       <div className="glass-card p-6 mb-6 space-y-4">
         {rows.map(({ label, value }) => (
           <div key={label} className="flex justify-between items-center border-b border-emerald-800 pb-3 last:border-0 last:pb-0">
-            <span className="text-emerald-600 text-sm">{label}</span>
+            <span className="text-emerald-300 text-sm">{label}</span>
             <span className="text-cream font-medium text-sm">{value}</span>
           </div>
         ))}
@@ -405,6 +407,7 @@ export default function BookingComponent() {
   const preselectedStylistName = searchParams.get('stylist')
 
   const [step, setStep] = useState(0)
+  const [direction, setDirection] = useState(1) // 1 = forward, -1 = back
   const [services, setServices] = useState([])
   const [stylists, setStylists] = useState([])
   const [selectedService, setSelectedService] = useState(null)
@@ -426,7 +429,7 @@ export default function BookingComponent() {
       setStylists(st.data)
       if (preselectedServiceId) {
         const found = s.data.find((sv) => sv.id === parseInt(preselectedServiceId))
-        if (found) { setSelectedService(found); setStep(1) }
+        if (found) { setSelectedService(found); setDirection(1); setStep(1) }
       }
       if (preselectedStylistName) {
         const match = st.data.find(
@@ -479,6 +482,8 @@ export default function BookingComponent() {
         notes,
       })
       setSuccess(true)
+      // Haptic tick on the commit moment — Android only, silent elsewhere
+      if ('vibrate' in navigator) navigator.vibrate(20)
     } catch (err) {
       const msg = err.response?.data?.detail || 'Booking failed. Please try again.'
       toast.error(msg)
@@ -491,12 +496,17 @@ export default function BookingComponent() {
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
-        <div className="glass-card max-w-md w-full p-10 text-center animate-fade-in">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92, y: 14 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+          className="glass-card max-w-md w-full p-10 text-center"
+        >
           <div className="w-20 h-20 rounded-full bg-gold-gradient flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-10 h-10 text-emerald-950" />
           </div>
           <h2 className="font-display text-3xl text-cream mb-3">Booking Confirmed!</h2>
-          <p className="text-emerald-600 mb-2">
+          <p className="text-emerald-300 mb-2">
             Your appointment with <span className="text-cream">{resolvedStylist?.name || 'our first available stylist'}</span> for{' '}
             <span className="text-cream">{selectedService?.name}</span> is confirmed.
           </p>
@@ -507,7 +517,7 @@ export default function BookingComponent() {
             <Link to="/my-appointments" className="btn-gold text-center">View My Appointments</Link>
             <Link to="/" className="btn-outline text-center">Back to Home</Link>
           </div>
-        </div>
+        </motion.div>
       </div>
     )
   }
@@ -523,7 +533,15 @@ export default function BookingComponent() {
 
         <StepIndicator current={step} />
 
-        <div className="glass-card p-6 sm:p-8 mb-8">
+        <div className="glass-card p-6 sm:p-8 mb-8 overflow-hidden">
+          {/* Direction-aware entrance: forward slides in from the right,
+              Back reverses the path (apple-design §7) */}
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, x: 28 * direction }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.35, ease: EASE_OUT }}
+          >
           {step === 0 && (
             <ServiceStep
               services={services}
@@ -555,12 +573,13 @@ export default function BookingComponent() {
               notes={notes} setNotes={setNotes}
             />
           )}
+          </motion.div>
         </div>
 
         {/* Navigation buttons */}
         <div className="flex justify-between items-center">
           {step > 0 ? (
-            <button onClick={() => setStep(s => s - 1)} className="btn-outline flex items-center gap-2">
+            <button onClick={() => { setDirection(-1); setStep(s => s - 1) }} className="btn-outline flex items-center gap-2">
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
           ) : (
@@ -569,7 +588,7 @@ export default function BookingComponent() {
           {step < 2 ? (
             <button
               id="next-step-btn"
-              onClick={() => setStep(s => s + 1)}
+              onClick={() => { setDirection(1); setStep(s => s + 1) }}
               disabled={!canNext()}
               className={`btn-gold flex items-center gap-2 transition-opacity ${!canNext() ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
@@ -589,7 +608,7 @@ export default function BookingComponent() {
         </div>
 
         {!user && step === 2 && (
-          <p className="text-center text-emerald-600 text-sm mt-4">
+          <p className="text-center text-emerald-300 text-sm mt-4">
             Please{' '}
             <Link to="/login" className="text-gold-400 underline hover:text-gold-300">login</Link>
             {' '}or{' '}

@@ -46,7 +46,7 @@ export default function Signup() {
           </div>
           <h1 className="font-display text-3xl text-cream">Create Account</h1>
           <div className="gold-divider" />
-          <p className="text-emerald-600 text-sm mt-2">Join Ayra Saloon — modern grooming for everyone</p>
+          <p className="text-emerald-300 text-sm mt-2">Join Ayra Saloon — modern grooming for everyone</p>
         </div>
 
         <div className="glass-card p-8">
@@ -57,7 +57,7 @@ export default function Signup() {
                   {label}
                 </label>
                 <div className="relative">
-                  <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
+                  <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-300" />
                   <input
                     id={id}
                     type={type}
@@ -77,7 +77,7 @@ export default function Signup() {
             <div>
               <label className="text-gold-400 text-xs font-medium tracking-widest uppercase block mb-2">Password</label>
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-300" />
                 <input
                   id="signup-password"
                   type={showPass ? 'text' : 'password'}
@@ -90,7 +90,7 @@ export default function Signup() {
                   className="luxury-input pl-11 pr-11"
                 />
                 <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-600 hover:text-gold-400 transition-colors">
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-300 hover:text-gold-400 transition-colors">
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
@@ -101,7 +101,7 @@ export default function Signup() {
             </button>
           </form>
 
-          <p className="text-center text-emerald-600 text-sm mt-6">
+          <p className="text-center text-emerald-300 text-sm mt-6">
             Already have an account?{' '}
             <Link to="/login" className="text-gold-400 hover:text-gold-300 font-medium transition-colors">Sign in</Link>
           </p>

@@ -72,13 +72,15 @@ export default function Philosophy() {
           </div>
         </ScrollEntrance>
 
-        {/* Image — clip-path entrance on every downward pass; static on the way up */}
+        {/* Image — clip-path reveal timed to the gaze: fires when the frame is
+            ~30% up the screen, not the moment it peeks in past the text column */}
         <ScrollEntrance
           hiddenState={{ clipPath: 'inset(0% 0% 100% 0%)' }}
           visibleState={{ clipPath: 'inset(0% 0% 0% 0%)' }}
           duration={0.8}
           ease={[0.77, 0, 0.175, 1]}
-          delay={0.08}
+          delay={0.05}
+          trigger={0.7}
           className="lg:col-span-5"
         >
           <div className="aspect-[3/4] overflow-hidden rounded-2xl">

@@ -86,7 +86,7 @@ export default function FAQAccordion() {
                     </span>
                   </span>
                   <ChevronDown
-                    className={`w-4 h-4 shrink-0 text-gold-400 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+                    className={`w-4 h-4 shrink-0 text-gold-400 transition-transform duration-300 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
                     style={{ transitionTimingFunction: 'var(--ease-out)' }}
                     aria-hidden="true"
                   />
@@ -97,7 +97,7 @@ export default function FAQAccordion() {
                   id={`faq-panel-${i}`}
                   role="region"
                   aria-hidden={!open}
-                  className={`grid transition-[grid-template-rows] duration-300 ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                  className={`grid transition-[grid-template-rows] duration-300 motion-reduce:transition-none ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
                   style={{ transitionTimingFunction: 'var(--ease-out)' }}
                 >
                   <div className="overflow-hidden">

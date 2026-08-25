@@ -4,12 +4,9 @@ from beanie import PydanticObjectId
 
 router = APIRouter(prefix="/availability", tags=["Availability"])
 
-# All possible time slots for a day (9 AM – 6 PM, every 30 min)
-ALL_SLOTS = [
-    f"{h:02d}:{m:02d}"
-    for h in range(9, 18)
-    for m in (0, 30)
-]
+# Booking slots — salon hours 10 AM – 9 PM, open all week, 1-hour intervals.
+# Last start: 20:00 (occupies the 8–9 PM window).
+ALL_SLOTS = [f"{h:02d}:00" for h in range(10, 21)]
 
 @router.get("/", response_model=schemas.AvailabilityResponse)
 async def get_availability(

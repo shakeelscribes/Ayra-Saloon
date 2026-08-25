@@ -98,3 +98,6 @@ start-frontend.bat
 .agents
 
 skills-lock.json
+
+# Database backup dumps (scripts are committed, data is not)
+backend/_backup/dump/

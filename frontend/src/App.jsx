@@ -79,8 +79,8 @@ function LandingPage() {
             <div className="md:col-span-2">
               <p className="uppercase tracking-[0.18em] text-xs text-cream/40 mb-4">Hours</p>
               <ul className="space-y-2.5 text-sm text-cream/75">
-                <li>Mon – Sat · 9 AM – 8 PM</li>
-                <li>Sunday · By appointment</li>
+                <li>Mon – Sun · 10 AM – 9 PM</li>
+                <li>Walk-ins welcome</li>
               </ul>
             </div>
 

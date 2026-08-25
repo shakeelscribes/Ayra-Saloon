@@ -10,7 +10,7 @@ function StatCard({ icon: Icon, label, value, color }) {
         <Icon className="w-5 h-5 text-cream" />
       </div>
       <p className="font-display text-3xl text-cream mb-1">{value}</p>
-      <p className="text-emerald-600 text-sm">{label}</p>
+      <p className="text-emerald-300 text-sm">{label}</p>
     </div>
   )
 }
@@ -89,7 +89,7 @@ export default function AdminDashboard() {
           />
           <button
             onClick={() => { setSelectedDate(''); fetchBookings('') }}
-            className="text-sm text-emerald-600 hover:text-gold-400 transition-colors underline"
+            className="text-sm text-emerald-300 hover:text-gold-400 transition-colors underline"
           >
             View All
           </button>
@@ -107,8 +107,8 @@ export default function AdminDashboard() {
                 {[1,2,3,4].map(i => <div key={i} className="glass-card h-20 animate-pulse" />)}
               </div>
             ) : timeline.length === 0 ? (
-              <div className="glass-card p-10 text-center text-emerald-600">
-                <Scissors className="w-8 h-8 mx-auto mb-3 text-emerald-700" />
+              <div className="glass-card p-10 text-center text-emerald-300">
+                <Scissors className="w-8 h-8 mx-auto mb-3 text-emerald-400" />
                 No confirmed bookings for this day.
               </div>
             ) : (
@@ -123,7 +123,7 @@ export default function AdminDashboard() {
                         <div className="w-px h-10 bg-emerald-700" />
                         <div>
                           <p className="text-cream font-medium text-sm">{b.service.name}</p>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-emerald-600">
+                          <div className="flex items-center gap-3 mt-1 text-xs text-emerald-300">
                             <span className="flex items-center gap-1"><User className="w-3 h-3" />{b.stylist.name}</span>
                             <span>₹{b.service.price}</span>
                           </div>
@@ -168,7 +168,7 @@ export default function AdminDashboard() {
                 </div>
               ))}
               {confirmed.length === 0 && (
-                <div className="glass-card p-6 text-center text-emerald-600 text-sm">No data for this day.</div>
+                <div className="glass-card p-6 text-center text-emerald-300 text-sm">No data for this day.</div>
               )}
             </div>
           </div>

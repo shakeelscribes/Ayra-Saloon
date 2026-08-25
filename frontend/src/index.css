@@ -153,6 +153,13 @@
     transform: scale(0.97);
   }
 
+  /* Keyboard focus — visible gold ring on every primary action */
+  .btn-gold:focus-visible,
+  .btn-outline:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+
   /* Outline gold button */
   .btn-outline {
     @apply border border-gold-500 text-gold-400 px-8 py-3 rounded-full font-medium;

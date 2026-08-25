@@ -28,17 +28,15 @@ const details = [
       </a>
     ),
   },
-  {
-    icon: Clock,
-    title: 'Hours',
-    body: (
-      <>
-        Mon – Sat · 9:00 AM – 8:00 PM
-        <br />
-        Sunday · By appointment
-      </>
-    ),
-  },
+    {
+      icon: Clock,
+      title: 'Hours',
+      body: (
+        <>
+          Mon – Sun · 10:00 AM – 9:00 PM
+        </>
+      ),
+    },
 ]
 
 export default function ContactLocation() {

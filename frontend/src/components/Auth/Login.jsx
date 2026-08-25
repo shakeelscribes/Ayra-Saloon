@@ -41,7 +41,7 @@ export default function Login() {
           </div>
           <h1 className="font-display text-3xl text-cream">Welcome Back</h1>
           <div className="gold-divider" />
-          <p className="text-emerald-600 text-sm mt-2">Sign in to manage your appointments</p>
+          <p className="text-emerald-300 text-sm mt-2">Sign in to manage your appointments</p>
         </div>
 
         <div className="glass-card p-8">
@@ -52,7 +52,7 @@ export default function Login() {
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-300" />
                 <input
                   id="login-email"
                   type="email"
@@ -73,7 +73,7 @@ export default function Login() {
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-300" />
                 <input
                   id="login-password"
                   type={showPass ? 'text' : 'password'}
@@ -88,7 +88,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPass(!showPass)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-600 hover:text-gold-400 transition-colors"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-300 hover:text-gold-400 transition-colors"
                 >
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -107,12 +107,12 @@ export default function Login() {
 
           {/* Admin hint */}
           <div className="mt-5 p-3 rounded-xl bg-emerald-900/50 border border-emerald-800">
-            <p className="text-emerald-600 text-xs text-center">
+            <p className="text-emerald-300 text-xs text-center">
               Admin: <span className="text-gold-400">admin@ayrasaloon.com</span> / <span className="text-gold-400">admin123</span>
             </p>
           </div>
 
-          <p className="text-center text-emerald-600 text-sm mt-6">
+          <p className="text-center text-emerald-300 text-sm mt-6">
             Don't have an account?{' '}
             <Link to="/signup" className="text-gold-400 hover:text-gold-300 font-medium transition-colors">
               Create one

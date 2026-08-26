@@ -97,6 +97,9 @@ class Booking(Document):
     audience: str = "unisex"                    # "men" | "women" | "unisex" — from step 1
     services: List[PydanticObjectId] = Field(default_factory=list)  # ordered; slot count = len
     date: str = ""                              # start date "YYYY-MM-DD"
+    time_slot: Optional[str] = None             # snapshot of the (first) slot time — survives
+                                                # slot-row deletion so cancelled/declined
+                                                # bookings still render in history views
     notes: Optional[str] = None
     status: BookingStatus = BookingStatus.pending
 

@@ -201,7 +201,16 @@ async def seed_data():
         if legacy_bookings:
             await models.Booking.find_all().delete()
             await models.BookingSlot.find_all().delete()
-            print(f"Migrated: wiped {len(legacy_bookings)} legacy booking docs (backup 20260825_174120).")
+            print(f"Migrated: wiped {len(legacy_bookings)} legacy booking docs (backup 20260825_174120).", flush=True)
+
+        # ── time_slot snapshot backfill — for bookings predating the field ──
+        missing_ts = await models.Booking.find({"time_slot": {"$exists": False}}).to_list()
+        for b in missing_ts:
+            slot = await models.BookingSlot.find_one(models.BookingSlot.booking_id == b.id)
+            b.time_slot = slot.time_slot if slot else None
+            await b.save()
+        if missing_ts:
+            print(f"Backfilled time_slot snapshot on {len(missing_ts)} booking(s).", flush=True)
 
         # Seed admin user
         if await models.User.find(models.User.is_admin == True).count() == 0:

@@ -35,7 +35,8 @@ async def serialize_booking(booking: models.Booking) -> schemas.BookingOut:
     return schemas.BookingOut(
         id=booking.id,
         date=booking.date,
-        time_slot=first.time_slot if first else None,
+        # live slot first; snapshot fallback for cancelled/declined bookings
+        time_slot=first.time_slot if first else (booking.time_slot or None),
         notes=booking.notes,
         status=booking.status if isinstance(booking.status, str) else booking.status.value,
         service=schemas.ServiceOut.model_validate(service) if service else None,
@@ -139,6 +140,7 @@ async def create_booking(
         audience=service.audience or "unisex",
         services=[service.id],
         date=booking_data.date,
+        time_slot=booking_data.time_slot,   # snapshot — survives slot-row deletion
         notes=booking_data.notes,
         status=models.BookingStatus.pending,   # soft-hold: awaiting admin approval
         history=[{

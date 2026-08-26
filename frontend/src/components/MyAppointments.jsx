@@ -19,8 +19,9 @@ function BookingCard({ booking, onCancel }) {
   const fmtDate = (d) =>
     new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 
-  const fmtTime = (t) => {
-    const [h, m] = t.split(':').map(Number)
+const fmtTime = (t) => {
+  if (!t) return '—'
+  const [h, m] = t.split(':').map(Number)
     return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
   }
 

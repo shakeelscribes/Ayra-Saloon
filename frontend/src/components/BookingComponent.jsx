@@ -505,10 +505,11 @@ export default function BookingComponent() {
           <div className="w-20 h-20 rounded-full bg-gold-gradient flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-10 h-10 text-emerald-950" />
           </div>
-          <h2 className="font-display text-3xl text-cream mb-3">Booking Confirmed!</h2>
+          <h2 className="font-display text-3xl text-cream mb-3">Booking Request Sent!</h2>
           <p className="text-emerald-300 mb-2">
-            Your appointment with <span className="text-cream">{resolvedStylist?.name || 'our first available stylist'}</span> for{' '}
-            <span className="text-cream">{selectedService?.name}</span> is confirmed.
+            Your <span className="text-cream">{selectedService?.name}</span> request with{' '}
+            <span className="text-cream">{resolvedStylist?.name || 'our first available stylist'}</span> is
+            received — you'll get a confirmation once the salon approves it.
           </p>
           <p className="text-gold-400 text-sm mb-8">
             {new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} at {timeSlot}

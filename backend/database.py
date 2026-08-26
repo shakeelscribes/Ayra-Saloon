@@ -45,6 +45,8 @@ async def init_db():
                 models.Service,
                 models.Stylist,
                 models.Booking,
+                models.BookingSlot,
+                models.Notification,
             ]
         )
     except ServerSelectionTimeoutError as e:

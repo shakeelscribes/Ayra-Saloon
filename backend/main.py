@@ -133,6 +133,27 @@ _LEGACY_SERVICE_MARKERS = ("Bridal Elegance Package", "The Royal Groom Experienc
 _LEGACY_STYLIST_NAMES = ("Priya Sharma", "Arjun Mehta", "Neha Kapoor")
 
 
+def _strip_audience(name: str):
+    """Strip gender/kids suffixes (both sheet styles) and infer audience.
+    Returns (clean_name, audience, for_kids)."""
+    for pat, aud, kids in [
+        (" — Boys", "men", True),
+        (" — Girls", "women", True),
+        ("(Boys)", "men", True),
+        ("(Girls)", "women", True),
+        (" — Men", "men", False),
+        (" — Women", "women", False),
+        ("(Men)", "men", False),
+        ("(Women)", "women", False),
+    ]:
+        if pat in name:
+            return name.replace(pat, "").strip(), aud, kids
+    # Heuristic for unsuffixed services that are inherently men's
+    if any(k in name.lower() for k in ("beard", "shave", "tonsure")):
+        return name.strip(), "men", False
+    return name.strip(), "unisex", False
+
+
 async def seed_data():
     try:
         services = await models.Service.find_all().to_list()
@@ -140,6 +161,24 @@ async def seed_data():
         if not services or any(marker in service_names for marker in _LEGACY_SERVICE_MARKERS):
             await models.Service.find_all().delete()
             await models.Service.insert_many([models.Service(**item) for item in SERVICE_CATALOG])
+            services = await models.Service.find_all().to_list()
+
+        # ── Audience migration v2 — in-place, idempotent ─────────────────────
+        # Strips " — Men"/"(Women)"-style suffixes, sets audience + for_kids.
+        # NOTE: detect via RAW collection — Pydantic fills the default on load,
+        # so model attributes can't tell us whether the field exists in Mongo.
+        raw_services = models.Service.get_motor_collection()
+        missing_audience = await raw_services.count_documents({"audience": {"$exists": False}})
+        if missing_audience > 0:
+            print(f"Audience migration: updating {missing_audience} services...", flush=True)
+            for s in services:
+                clean, aud, kids = _strip_audience(s.name)
+                s.name = clean
+                s.audience = aud
+                s.for_kids = kids
+                await s.save()
+            services = await models.Service.find_all().to_list()
+            print("Audience migration complete.", flush=True)
 
         stylists = await models.Stylist.find_all().to_list()
         stylist_names = {s.name for s in stylists}
@@ -154,17 +193,26 @@ async def seed_data():
             await models.Stylist.find_all().delete()
             await models.Stylist.insert_many([models.Stylist(**item) for item in STYLIST_TEAM])
 
+        # ── Bookings: wipe legacy single-slot docs (approved; backup exists) ─
+        # Old shape carried service_id/time_slot directly on the booking.
+        legacy_bookings = await models.Booking.find(
+            {"service_id": {"$ne": None}}
+        ).to_list()
+        if legacy_bookings:
+            await models.Booking.find_all().delete()
+            await models.BookingSlot.find_all().delete()
+            print(f"Migrated: wiped {len(legacy_bookings)} legacy booking docs (backup 20260825_174120).")
+
         # Seed admin user
         if await models.User.find(models.User.is_admin == True).count() == 0:
             admin = models.User(
-                name="Admin",
-                email="admin@ayrasaloon.com",
+                name="Admin",                email="admin@ayrasaloon.com",
                 hashed_password=get_password_hash("admin123"),
                 is_admin=True,
             )
             await admin.insert()
     except Exception as e:
-        print(f"Error seeding data: {e}")
+        print(f"Error seeding data: {e}", flush=True)
 
 @app.get("/")
 def root():

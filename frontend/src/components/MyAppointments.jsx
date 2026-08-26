@@ -5,9 +5,11 @@ import toast from 'react-hot-toast'
 import client from '../api/client'
 
 const statusConfig = {
-  confirmed: { label: 'Confirmed', color: 'text-emerald-400', bg: 'bg-emerald-900/50 border-emerald-700', Icon: CheckCircle2 },
-  pending:   { label: 'Pending',   color: 'text-gold-400',    bg: 'bg-gold-500/10 border-gold-700',     Icon: AlertCircle },
-  cancelled: { label: 'Cancelled', color: 'text-red-400',     bg: 'bg-red-900/20 border-red-800',       Icon: XCircle },
+  confirmed:           { label: 'Confirmed',           color: 'text-emerald-400', bg: 'bg-emerald-900/50 border-emerald-700',    Icon: CheckCircle2 },
+  pending:             { label: 'Pending approval',    color: 'text-amber-400',   bg: 'bg-amber-900/20 border-amber-800',        Icon: AlertCircle },
+  awaiting_reschedule: { label: 'Reschedule proposed', color: 'text-violet-400',  bg: 'bg-violet-900/20 border-violet-800',      Icon: Calendar },
+  declined:            { label: 'Declined',            color: 'text-red-400',     bg: 'bg-red-900/20 border-red-800',            Icon: XCircle },
+  cancelled:           { label: 'Cancelled',           color: 'text-red-400',     bg: 'bg-red-900/20 border-red-800',            Icon: XCircle },
 }
 
 function BookingCard({ booking, onCancel }) {
@@ -108,7 +110,7 @@ export default function MyAppointments() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 justify-center mb-8 flex-wrap">
-          {['all', 'confirmed', 'cancelled'].map((f) => (
+          {['all', 'pending', 'confirmed', 'cancelled'].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}

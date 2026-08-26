@@ -23,6 +23,7 @@ async def serialize_booking(booking: models.Booking) -> schemas.BookingOut:
     ).sort(models.BookingSlot.sequence).to_list()
 
     stylist = await models.Stylist.get(booking.stylist_id)
+    user = await models.User.get(booking.user_id)
 
     service = None
     first = slots[0] if slots else None
@@ -39,6 +40,7 @@ async def serialize_booking(booking: models.Booking) -> schemas.BookingOut:
         status=booking.status if isinstance(booking.status, str) else booking.status.value,
         service=schemas.ServiceOut.model_validate(service) if service else None,
         stylist=schemas.StylistOut.model_validate(stylist) if stylist else None,
+        customer_name=user.name if user else None,
         services=booking.services,
         slots=[
             schemas.BookingSlotOut(
@@ -119,6 +121,18 @@ async def create_booking(
             detail="This stylist is already booked for that date and time.",
         )
 
+    # The customer can't be in two chairs at once either
+    own_conflict = await models.BookingSlot.find_one(
+        models.BookingSlot.user_id == current_user.id,
+        models.BookingSlot.date == booking_data.date,
+        models.BookingSlot.time_slot == booking_data.time_slot,
+    )
+    if own_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You already have a booking at that time. Pick a different slot.",
+        )
+
     booking = models.Booking(
         user_id=current_user.id,
         stylist_id=stylist.id,
@@ -139,6 +153,7 @@ async def create_booking(
 
     slot = models.BookingSlot(
         booking_id=booking.id,
+        user_id=current_user.id,
         service_id=service.id,
         stylist_id=stylist.id,
         sequence=0,
@@ -199,6 +214,63 @@ async def cancel_booking(
             f"Your Ayra Saloon appointment on {booking.date} has been cancelled. "
             f"Book again anytime — we'd love to see you.",
         )
+
+
+# ── Admin: approve / decline pending bookings ─────────────────────────────────
+@router.post("/{booking_id}/approve", response_model=schemas.BookingOut)
+async def approve_booking(
+    booking_id: PydanticObjectId,
+    _admin: models.User = Depends(get_current_admin),
+):
+    booking = await models.Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    from_status = booking.status if isinstance(booking.status, str) else booking.status.value
+    if booking.status != models.BookingStatus.pending:
+        raise HTTPException(status_code=409, detail=f"Only pending bookings can be approved (current: {from_status}).")
+
+    booking.status = models.BookingStatus.confirmed
+    write_history(booking, "admin", "approved", from_status, "confirmed")
+    await booking.save()
+
+    user = await models.User.get(booking.user_id)
+    if user:
+        await write_notification(
+            booking, user, "booking_confirmed",
+            f"Good news {user.name}! Your Ayra Saloon booking on {booking.date} is confirmed. See you soon!",
+        )
+    return await serialize_booking(booking)
+
+
+@router.post("/{booking_id}/decline", response_model=schemas.BookingOut)
+async def decline_booking(
+    booking_id: PydanticObjectId,
+    _admin: models.User = Depends(get_current_admin),
+):
+    booking = await models.Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    from_status = booking.status if isinstance(booking.status, str) else booking.status.value
+    if booking.status != models.BookingStatus.pending:
+        raise HTTPException(status_code=409, detail=f"Only pending bookings can be declined (current: {from_status}).")
+
+    booking.status = models.BookingStatus.declined
+    write_history(booking, "admin", "declined", from_status, "declined")
+    await booking.save()
+
+    # Delete-on-free: declining releases the held slots
+    await models.BookingSlot.find(
+        models.BookingSlot.booking_id == booking.id
+    ).delete()
+
+    user = await models.User.get(booking.user_id)
+    if user:
+        await write_notification(
+            booking, user, "booking_declined",
+            f"Your Ayra Saloon booking request on {booking.date} could not be accommodated. "
+            f"Call us to find an alternative slot.",
+        )
+    return await serialize_booking(booking)
 
 
 # ── Admin: all bookings ───────────────────────────────────────────────────────

@@ -59,10 +59,13 @@ class Stylist(Document):
 class BookingSlot(Document):
     """One 1-hour slot inside a booking. Exists ONLY while the booking is active
     (pending / awaiting_reschedule / confirmed). Cancel, decline or reschedule
-    deletes the rows — that deletion IS the 'freeing' of the slot. A UNIQUE index
-    on (stylist_id, date, time_slot) makes double-booking impossible at the DB level."""
+    deletes the rows — that deletion IS the 'freeing' of the slot. Two UNIQUE
+    indexes make double-booking impossible at the DB level:
+    - (stylist_id, date, time_slot): a stylist can't be in two chairs
+    - (user_id, date, time_slot): a customer can't be in two chairs"""
 
     booking_id: PydanticObjectId
+    user_id: PydanticObjectId
     service_id: PydanticObjectId
     stylist_id: PydanticObjectId
     sequence: int = 0                  # 0, 1, 2 ... order within the booking
@@ -74,10 +77,16 @@ class BookingSlot(Document):
         name = "booking_slots"
         indexes = [
             "booking_id",
+            "user_id",
             IndexModel(
                 [("stylist_id", 1), ("date", 1), ("time_slot", 1)],
                 unique=True,
-                name="unique_active_slot",
+                name="unique_stylist_slot",
+            ),
+            IndexModel(
+                [("user_id", 1), ("date", 1), ("time_slot", 1)],
+                unique=True,
+                name="unique_customer_slot",
             ),
         ]
 

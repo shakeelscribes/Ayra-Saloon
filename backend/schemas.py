@@ -77,6 +77,7 @@ class BookingOut(BaseModel):
     time_slot: Optional[str] = None
     service: Optional[ServiceOut] = None
     stylist: Optional[StylistOut] = None
+    customer_name: Optional[str] = None
     # ── New multi-slot shape
     services: List[PydanticObjectId] = []
     slots: List[BookingSlotOut] = []

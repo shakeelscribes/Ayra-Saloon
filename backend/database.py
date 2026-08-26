@@ -36,7 +36,48 @@ async def init_db():
     import sys
     import models
     from pymongo.errors import ServerSelectionTimeoutError
-    
+
+    # ── Pre-index maintenance: backfill user_id + resolve legacy duplicates ──
+    # Must run BEFORE init_beanie creates the unique (user_id, date, time_slot)
+    # index, otherwise pre-existing slot docs without user_id (or customer
+    # double-bookings created before the constraint) would break index creation.
+    try:
+        col_slots = database.get_collection("booking_slots")
+        col_bookings = database.get_collection("bookings")
+
+        missing = await col_slots.count_documents({"user_id": {"$exists": False}})
+        if missing:
+            print(f"Backfilling user_id on {missing} slot row(s)...", flush=True)
+            async for slot in col_slots.find({"user_id": {"$exists": False}}):
+                b = await col_bookings.find_one({"_id": slot["booking_id"]})
+                if b:
+                    await col_slots.update_one({"_id": slot["_id"]}, {"$set": {"user_id": b["user_id"]}})
+
+        # Legacy index name cleanup: same keys as the new unique_stylist_slot
+        # index but a different name — MongoDB forbids that coexistence.
+        try:
+            await col_slots.drop_index("unique_active_slot")
+            print("Dropped legacy index unique_active_slot", flush=True)
+        except Exception:
+            pass  # didn't exist — fine
+
+        # Customer double-bookings that pre-date the unique constraint:
+        # keep the earliest slot, drop the later ones (plus their bookings).
+        pipeline = [
+            {"$group": {"_id": {"u": "$user_id", "d": "$date", "t": "$time_slot"},
+                        "ids": {"$push": "$_id"}, "n": {"$sum": 1}}},
+            {"$match": {"n": {"$gt": 1}}},
+        ]
+        async for dup in col_slots.aggregate(pipeline):
+            for sid in dup["ids"][1:]:
+                slot = await col_slots.find_one({"_id": sid})
+                if slot:
+                    await col_slots.delete_one({"_id": sid})
+                    await col_bookings.delete_one({"_id": slot["booking_id"]})
+                    print("Removed pre-constraint duplicate booking.", flush=True)
+    except Exception as e:
+        print(f"Pre-index maintenance warning: {e}", flush=True)
+
     try:
         await init_beanie(
             database=database,

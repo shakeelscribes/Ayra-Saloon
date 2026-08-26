@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Calendar, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle } from 'lucide-react'
+import { Calendar, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../../api/client'
 
@@ -17,6 +17,7 @@ function StatCard({ icon: Icon, label, value, color }) {
 
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState([])
+  const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
 
@@ -32,14 +33,48 @@ export default function AdminDashboard() {
     }
   }
 
+  // Pending queue always spans all dates — these need action regardless of day
+  const fetchPending = async () => {
+    try {
+      const { data } = await client.get('/bookings/admin/all')
+      setPending(data.filter(b => b.status === 'pending'))
+    } catch {
+      /* silent — main list shows the error state */
+    }
+  }
+
   useEffect(() => { fetchBookings(selectedDate) }, [selectedDate])
+  useEffect(() => { fetchPending() }, [])
+
+  const refreshAll = () => { fetchBookings(selectedDate); fetchPending() }
+
+  const handleApprove = async (id) => {
+    try {
+      await client.post(`/bookings/${id}/approve`)
+      toast.success('Booking approved')
+      refreshAll()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not approve')
+    }
+  }
+
+  const handleDecline = async (id) => {
+    if (!confirm('Decline this booking request?')) return
+    try {
+      await client.post(`/bookings/${id}/decline`)
+      toast.success('Booking declined')
+      refreshAll()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not decline')
+    }
+  }
 
   const handleCancel = async (id) => {
     if (!confirm('Cancel this booking?')) return
     try {
       await client.delete(`/bookings/${id}`)
       toast.success('Booking cancelled')
-      fetchBookings(selectedDate)
+      refreshAll()
     } catch {
       toast.error('Could not cancel booking')
     }
@@ -67,8 +102,9 @@ export default function AdminDashboard() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-          <StatCard icon={TrendingUp} label="Total Bookings" value={bookings.length} color="bg-emerald-800" />
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
+          <StatCard icon={TrendingUp} label="Total Bookings" value={bookings.length + pending.length} color="bg-emerald-800" />
+          <StatCard icon={AlertCircle} label="Pending Approval" value={pending.length} color="bg-amber-700" />
           <StatCard icon={CheckCircle2} label="Confirmed" value={confirmed.length} color="bg-emerald-700" />
           <StatCard icon={XCircle} label="Cancelled" value={cancelled.length} color="bg-red-900" />
           <StatCard icon={Users} label="Revenue (est.)" value={`₹${confirmed.reduce((s, b) => s + b.service.price, 0).toLocaleString('en-IN')}`} color="bg-gold-600" />
@@ -94,6 +130,56 @@ export default function AdminDashboard() {
             View All
           </button>
         </div>
+
+        {/* Pending approval queue — always visible, all dates */}
+        {pending.length > 0 && (
+          <div className="mb-10">
+            <h2 className="font-display text-xl text-cream mb-5 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-400" />
+              Pending Approval
+              <span className="text-xs bg-amber-900/30 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800">
+                {pending.length} awaiting action
+              </span>
+            </h2>
+            <div className="space-y-3">
+              {pending.map(b => (
+                <div key={b.id} className="glass-card p-4 border border-amber-800/50">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="text-center min-w-[60px]">
+                        <p className="text-amber-400 font-semibold text-sm">{fmtTime(b.time_slot)}</p>
+                        <p className="text-emerald-300 text-xs">{b.date}</p>
+                      </div>
+                      <div className="w-px h-10 bg-emerald-700" />
+                      <div>
+                        <p className="text-cream font-medium text-sm">{b.service?.name}</p>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-emerald-300">
+                          <span className="flex items-center gap-1"><User className="w-3 h-3" />{b.customer_name || 'Customer'}</span>
+                          <span className="flex items-center gap-1"><Scissors className="w-3 h-3" />{b.stylist?.name}</span>
+                          <span>₹{b.service?.price}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleApprove(b.id)}
+                        className="btn-gold !px-4 !py-2 text-xs"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleDecline(b.id)}
+                        className="btn-outline !px-4 !py-2 text-xs"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Schedule timeline */}
         <div className="grid lg:grid-cols-3 gap-6">

@@ -1,15 +1,59 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
+from datetime import datetime, timedelta, timezone
 from database import init_db
 import models
 
-# ── Lifespan event for DB connection and seeding ──────────────────────────────
+# ── Lifespan event for DB connection, seeding and background maintenance ──────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_data()
+    ttl_task = asyncio.create_task(_stale_booking_cleanup())
     yield
+    ttl_task.cancel()
+
+
+async def _stale_booking_cleanup():
+    """TTL cron: pending bookings older than 24h auto-decline (slots freed,
+    notification written). Awaiting-reschedule proposals older than 24h are
+    auto-declined too. Runs every 15 minutes."""
+    from routes.bookings import write_notification
+    while True:
+        try:
+            await asyncio.sleep(900)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            stale_pending = await models.Booking.find(
+                models.Booking.status == models.BookingStatus.pending,
+                models.Booking.created_at < cutoff,
+            ).to_list()
+            stale_proposals = await models.Booking.find(
+                models.Booking.status == models.BookingStatus.awaiting_reschedule,
+                models.Booking.proposed_at < cutoff,
+            ).to_list()
+            for booking in stale_pending + stale_proposals:
+                from_status = booking.status if isinstance(booking.status, str) else booking.status.value
+                booking.status = models.BookingStatus.declined
+                write_history(booking, "system", "auto_declined_ttl", from_status, "declined")
+                await booking.save()
+                await models.BookingSlot.find(
+                    models.BookingSlot.booking_id == booking.id
+                ).delete()
+                user = await models.User.get(booking.user_id)
+                if user:
+                    await write_notification(
+                        booking, user, "booking_declined",
+                        f"Your Ayra Saloon request from {booking.date} expired before "
+                        f"approval. Book again anytime!",
+                    )
+            if stale_pending or stale_proposals:
+                print(f"TTL cleanup: auto-declined {len(stale_pending) + len(stale_proposals)} stale booking(s).", flush=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"TTL cleanup error: {e}", flush=True)
 
 app = FastAPI(
     title="Ayra Saloon API",
@@ -32,13 +76,17 @@ from routes.auth import router as auth_router
 from routes.services import router as services_router
 from routes.stylists import router as stylists_router
 from routes.availability import router as availability_router
-from routes.bookings import router as bookings_router
+from routes.bookings import router as bookings_router, write_history, write_notification
+from routes.notifications import router as notifications_router
+from routes.users import router as users_router
 
 app.include_router(auth_router)
 app.include_router(services_router)
 app.include_router(stylists_router)
 app.include_router(availability_router)
 app.include_router(bookings_router)
+app.include_router(notifications_router)
+app.include_router(users_router)
 
 # ── Seed database with initial data ───────────────────────────────────────────
 from auth import get_password_hash

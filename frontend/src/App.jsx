@@ -17,6 +17,7 @@ import BookingComponent from './components/BookingComponent'
 import ServicesPage from './pages/ServicesPage'
 import StylistsPage from './pages/StylistsPage'
 import StylistProfilePage from './pages/StylistProfilePage'
+import ProfilePage from './pages/ProfilePage'
 import Login from './components/Auth/Login'
 import Signup from './components/Auth/Signup'
 import MyAppointments from './components/MyAppointments'
@@ -136,6 +137,10 @@ function AppShell() {
         <Route
           path="/my-appointments"
           element={<PrivateRoute><MyAppointments /></PrivateRoute>}
+        />
+        <Route
+          path="/profile"
+          element={<PrivateRoute><ProfilePage /></PrivateRoute>}
         />
         <Route
           path="/admin"

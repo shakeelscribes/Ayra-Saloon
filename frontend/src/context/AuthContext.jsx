@@ -35,8 +35,16 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
+  const updateUser = useCallback((patch) => {
+    setUser((prev) => {
+      const next = { ...prev, ...patch }
+      localStorage.setItem('ayra_user', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, isAdmin: user?.is_admin }}>
+    <AuthContext.Provider value={{ user, login, register, logout, updateUser, isAdmin: user?.is_admin }}>
       {children}
     </AuthContext.Provider>
   )

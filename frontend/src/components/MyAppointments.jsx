@@ -111,7 +111,7 @@ export default function MyAppointments() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 justify-center mb-8 flex-wrap">
-          {['all', 'pending', 'confirmed', 'cancelled'].map((f) => (
+          {['all', 'pending', 'confirmed', 'declined', 'cancelled'].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}

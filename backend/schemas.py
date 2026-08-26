@@ -51,13 +51,19 @@ class StylistOut(BaseModel):
     model_config = {"from_attributes": True}
 
 # ── Bookings ──────────────────────────────────────────────────────────────────
-# PR-1 compat shape: the current frontend still submits a single service +
-# single slot. PR-2 replaces this with the multi-slot body (service_ids list).
-class BookingCreate(BaseModel):
+class BookingItem(BaseModel):
+    """One service inside a multi-service booking, with its own stylist."""
     service_id: PydanticObjectId
     stylist_id: PydanticObjectId
+
+# PR-1 compat body (single service) + PR-2 multi-service body share this schema:
+# legacy senders fill service_id/stylist_id; the new flow fills items[].
+class BookingCreate(BaseModel):
+    service_id: Optional[PydanticObjectId] = None
+    stylist_id: Optional[PydanticObjectId] = None
+    items: Optional[List[BookingItem]] = None
     date: str          # "YYYY-MM-DD"
-    time_slot: str     # "HH:MM"
+    time_slot: str     # "HH:MM" — start slot
     notes: Optional[str] = None
 
 class BookingSlotOut(BaseModel):
@@ -96,6 +102,17 @@ class AvailabilityResponse(BaseModel):
     date: str
     available_slots: List[str]
     booked_slots: List[str]
+    consecutive_starts: List[str] = []   # starts where `slot_count` consecutive hours are free
+
+class RescheduleProposal(BaseModel):
+    date: str              # "YYYY-MM-DD"
+    time_slot: str         # "HH:MM"
+    reason: Optional[str] = None
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    gender: Optional[str] = None         # "men" | "women" | None
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 class NotificationOut(BaseModel):

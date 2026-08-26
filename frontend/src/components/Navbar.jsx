@@ -71,6 +71,10 @@ export default function Navbar() {
                 <Calendar className="w-4 h-4" />
                 My Bookings
               </Link>
+              <Link to="/profile" className="flex items-center gap-1.5 text-cream/80 text-sm hover:text-gold-400 transition-colors">
+                <User className="w-4 h-4" />
+                My Profile
+              </Link>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 btn-outline text-sm !px-5 !py-2"
@@ -115,6 +119,9 @@ export default function Navbar() {
               )}
               <Link to="/my-appointments" onClick={() => setOpen(false)} className="text-cream/80 hover:text-gold-400">
                 My Bookings
+              </Link>
+              <Link to="/profile" onClick={() => setOpen(false)} className="text-cream/80 hover:text-gold-400">
+                My Profile
               </Link>
               <button onClick={handleLogout} className="text-left text-red-400 hover:text-red-300 font-medium">
                 Logout

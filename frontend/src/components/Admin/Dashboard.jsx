@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Calendar, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../../api/client'
+
+/* Salon day grid — mirrors backend/routes/availability.py ALL_SLOTS. */
+const ALL_SLOTS = Array.from({ length: 11 }, (_, i) => `${10 + i}:00`)
 
 function StatCard({ icon: Icon, label, value, color }) {
   return (
@@ -22,11 +25,30 @@ const istToday = () => {
   return new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000).toISOString().split('T')[0]
 }
 
+const kindConfig = {
+  booking_pending:      { label: 'Request received',    cls: 'text-amber-400 bg-amber-900/20 border-amber-800' },
+  booking_confirmed:    { label: 'Confirmed',           cls: 'text-emerald-400 bg-emerald-900/20 border-emerald-700' },
+  reschedule_proposed:  { label: 'Reschedule proposed', cls: 'text-violet-400 bg-violet-900/20 border-violet-800' },
+  reschedule_confirmed: { label: 'Reschedule accepted', cls: 'text-emerald-400 bg-emerald-900/20 border-emerald-700' },
+  booking_declined:     { label: 'Declined',            cls: 'text-red-400 bg-red-900/20 border-red-800' },
+  booking_cancelled:    { label: 'Cancelled',           cls: 'text-red-400 bg-red-900/20 border-red-800' },
+}
+
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState([])
   const [pending, setPending] = useState([])
+  const [awaiting, setAwaiting] = useState([])
+  const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(istToday())
+
+  // Propose-reschedule modal state
+  const [rescheduleTarget, setRescheduleTarget] = useState(null)
+  const [propDate, setPropDate] = useState('')
+  const [propStart, setPropStart] = useState(null)
+  const [propReason, setPropReason] = useState('')
+  const [avail, setAvail] = useState({})
+  const [availLoading, setAvailLoading] = useState(false)
 
   const fetchBookings = async (date) => {
     setLoading(true)
@@ -40,20 +62,30 @@ export default function AdminDashboard() {
     }
   }
 
-  // Pending queue always spans all dates — these need action regardless of day
-  const fetchPending = async () => {
+  // Action queues always span all dates — these need action regardless of day
+  const fetchQueues = async () => {
     try {
       const { data } = await client.get('/bookings/admin/all')
       setPending(data.filter(b => b.status === 'pending'))
+      setAwaiting(data.filter(b => b.status === 'awaiting_reschedule'))
     } catch {
       /* silent — main list shows the error state */
     }
   }
 
-  useEffect(() => { fetchBookings(selectedDate) }, [selectedDate])
-  useEffect(() => { fetchPending() }, [])
+  const fetchNotifications = async () => {
+    try {
+      const { data } = await client.get('/notifications/all?limit=20')
+      setNotifications(data)
+    } catch {
+      /* silent — panel is secondary */
+    }
+  }
 
-  const refreshAll = () => { fetchBookings(selectedDate); fetchPending() }
+  useEffect(() => { fetchBookings(selectedDate) }, [selectedDate])
+  useEffect(() => { fetchQueues(); fetchNotifications() }, [])
+
+  const refreshAll = () => { fetchBookings(selectedDate); fetchQueues(); fetchNotifications() }
 
   const handleApprove = async (id) => {
     try {
@@ -87,6 +119,23 @@ export default function AdminDashboard() {
     }
   }
 
+  const openReschedule = (b) => {
+    setRescheduleTarget(b)
+    setPropDate(b.date)
+    setPropStart(null)
+    setPropReason('')
+    setAvail({})
+  }
+
+  const handleMarkSent = async (id) => {
+    try {
+      await client.post(`/notifications/${id}/mark-sent`)
+      fetchNotifications()
+    } catch {
+      toast.error('Could not mark as sent')
+    }
+  }
+
   const confirmed = bookings.filter(b => b.status === 'confirmed')
   const cancelled = bookings.filter(b => b.status === 'cancelled')
 
@@ -95,6 +144,10 @@ export default function AdminDashboard() {
     const [h, m] = t.split(':').map(Number)
     return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
   }
+
+  const fmtDateTime = (iso) => iso
+    ? new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+    : '—'
 
   // Multi-slot shape: a booking holds N slots (one per service). Fall back to
   // the legacy singular fields for old snapshot bookings.
@@ -108,6 +161,77 @@ export default function AdminDashboard() {
   // Group confirmed bookings by first-slot time
   const timeline = [...confirmed].sort((a, b) => firstSlotTime(a).localeCompare(firstSlotTime(b)))
 
+  /* ---- Propose-reschedule modal logic ---- */
+
+  const propRows = rescheduleTarget?.slots?.length ? rescheduleTarget.slots : []
+  const propStylistIds = useMemo(
+    () => [...new Set(propRows.map(sl => String(sl.stylist_id)))],
+    [rescheduleTarget]
+  )
+
+  // Availability per involved stylist for the proposed date. Own rows on the
+  // same date are moving away, so they count as free (backend excludes them
+  // from conflict checks the same way).
+  useEffect(() => {
+    if (!rescheduleTarget || !propDate) return
+    const controller = new AbortController()
+    setAvailLoading(true)
+    setAvail({})
+    setPropStart(null)
+    Promise.all(propStylistIds.map(id =>
+      client.get(`/availability/?stylist_id=${id}&date=${propDate}`, { signal: controller.signal })
+        .then(r => {
+          const free = new Set(r.data.available_slots)
+          if (propDate === rescheduleTarget.date) {
+            propRows.forEach(sl => {
+              if (String(sl.stylist_id) === id) free.add(sl.time_slot)
+            })
+          }
+          return [id, free]
+        })
+        .catch(() => [id, new Set()])
+    )).then(pairs => {
+      if (!controller.signal.aborted) setAvail(Object.fromEntries(pairs))
+    }).finally(() => {
+      if (!controller.signal.aborted) setAvailLoading(false)
+    })
+    return () => controller.abort()
+  }, [rescheduleTarget, propDate])
+
+  // A start works when every service's own stylist is free at its cascaded time
+  const viableStarts = useMemo(() => {
+    const viable = new Set()
+    if (!rescheduleTarget || !propRows.length) return viable
+    for (let s = 0; s + propRows.length <= ALL_SLOTS.length; s++) {
+      let ok = true
+      for (let i = 0; i < propRows.length; i++) {
+        const free = avail[String(propRows[i].stylist_id)]
+        if (!free || !free.has(ALL_SLOTS[s + i])) { ok = false; break }
+      }
+      if (ok) viable.add(ALL_SLOTS[s])
+    }
+    return viable
+  }, [rescheduleTarget, avail])
+
+  const availLoaded = !availLoading && propStylistIds.length > 0 &&
+    propStylistIds.every(id => avail[id])
+
+  const handlePropose = async () => {
+    if (!rescheduleTarget || !propStart) return
+    try {
+      await client.post(`/bookings/${rescheduleTarget.id}/propose-reschedule`, {
+        date: propDate,
+        time_slot: propStart,
+        reason: propReason.trim() || null,
+      })
+      toast.success('Reschedule proposed — customer notified')
+      setRescheduleTarget(null)
+      refreshAll()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not propose reschedule')
+    }
+  }
+
   return (
     <div className="min-h-screen pt-24 pb-16 px-6">
       <div className="max-w-6xl mx-auto">
@@ -119,9 +243,10 @@ export default function AdminDashboard() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-10">
           <StatCard icon={TrendingUp} label="Total Bookings" value={bookings.length + pending.length} color="bg-emerald-800" />
           <StatCard icon={AlertCircle} label="Pending Approval" value={pending.length} color="bg-amber-700" />
+          <StatCard icon={CalendarClock} label="Awaiting Reschedule" value={awaiting.length} color="bg-violet-800" />
           <StatCard icon={CheckCircle2} label="Confirmed" value={confirmed.length} color="bg-emerald-700" />
           <StatCard icon={XCircle} label="Cancelled" value={cancelled.length} color="bg-red-900" />
           <StatCard icon={Users} label="Revenue (est.)" value={`₹${confirmed.reduce((s, b) => s + bookingTotal(b), 0).toLocaleString('en-IN')}`} color="bg-gold-600" />
@@ -200,6 +325,48 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* Awaiting reschedule queue — customer has an open proposal */}
+        {awaiting.length > 0 && (
+          <div className="mb-10">
+            <h2 className="font-display text-xl text-cream mb-5 flex items-center gap-2">
+              <CalendarClock className="w-5 h-5 text-violet-400" />
+              Awaiting Reschedule
+              <span className="text-xs bg-violet-900/30 text-violet-400 px-2.5 py-1 rounded-full border border-violet-800">
+                {awaiting.length} waiting on customer
+              </span>
+            </h2>
+            <div className="space-y-3">
+              {awaiting.map(b => (
+                <div key={b.id} className="glass-card p-4 border border-violet-800/50">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0 grow">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</p>
+                        <span className="text-emerald-300 text-xs">{b.date}</span>
+                        {b.customer_phone && <span className="text-emerald-300 text-xs">{b.customer_phone}</span>}
+                      </div>
+                      <p className="text-violet-300 text-xs mt-2">
+                        Proposed: <span className="text-cream font-medium">{b.proposed_date} at {fmtTime(b.proposed_time_slot)}</span>
+                        <span className="text-emerald-500"> (was {b.date} at {fmtTime(b.time_slot)})</span>
+                      </p>
+                      <div className="mt-2 space-y-1.5">
+                        {bookingSlots(b).map(sl => (
+                          <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
+                            <span className="text-violet-400 font-semibold w-16">{fmtTime(sl.time_slot)}</span>
+                            <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                            <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <span className="text-xs text-violet-300 italic whitespace-nowrap">Waiting for customer's answer</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Schedule timeline */}
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Timeline */}
@@ -226,12 +393,20 @@ export default function AdminDashboard() {
                         <span>{bookingSlots(b).length || 1} service{(bookingSlots(b).length || 1) > 1 ? 's' : ''}</span>
                         <span className="text-gold-400 font-semibold">₹{bookingTotal(b).toLocaleString('en-IN')}</span>
                       </div>
-                      <button
-                        onClick={() => handleCancel(b.id)}
-                        className="text-xs text-red-400 hover:text-red-300 transition-colors whitespace-nowrap"
-                      >
-                        Cancel
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => openReschedule(b)}
+                          className="text-xs text-violet-300 hover:text-violet-200 transition-colors whitespace-nowrap"
+                        >
+                          Reschedule
+                        </button>
+                        <button
+                          onClick={() => handleCancel(b.id)}
+                          className="text-xs text-red-400 hover:text-red-300 transition-colors whitespace-nowrap"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
                       {bookingSlots(b).map(sl => (
@@ -288,7 +463,153 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+
+        {/* WhatsApp notifications panel */}
+        <div className="mt-10">
+          <h2 className="font-display text-xl text-cream mb-5 flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-gold-400" /> WhatsApp Notifications
+            <span className="text-xs bg-emerald-900/40 text-emerald-300 px-2.5 py-1 rounded-full border border-emerald-800">
+              {notifications.filter(n => !n.sent_at).length} unsent
+            </span>
+          </h2>
+          {notifications.length === 0 ? (
+            <div className="glass-card p-6 text-center text-emerald-300 text-sm">No notifications yet.</div>
+          ) : (
+            <div className="space-y-3">
+              {notifications.map(n => {
+                const kind = kindConfig[n.kind] || { label: n.kind, cls: 'text-emerald-300 bg-emerald-900/20 border-emerald-800' }
+                return (
+                  <div key={n.id} className="glass-card p-4 flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0 grow">
+                      <div className="flex flex-wrap items-center gap-3 mb-1.5">
+                        <span className={`text-xs px-2.5 py-1 rounded-full border ${kind.cls}`}>{kind.label}</span>
+                        <span className="text-emerald-300 text-xs">{fmtDateTime(n.created_at)}</span>
+                        {n.sent_at
+                          ? <span className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCheck className="w-3.5 h-3.5" /> Sent</span>
+                          : <span className="text-amber-400 text-xs">Not sent yet</span>}
+                      </div>
+                      <p className="text-cream text-sm break-words">{n.rendered_text}</p>
+                      {!n.phone && <p className="text-amber-400 text-xs mt-1">Customer has no phone number on file.</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {n.deep_link && (
+                        <a
+                          href={n.deep_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-gold !px-4 !py-2 text-xs inline-flex items-center gap-1.5"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                        </a>
+                      )}
+                      {!n.sent_at && (
+                        <button
+                          onClick={() => handleMarkSent(n.id)}
+                          className="btn-outline !px-4 !py-2 text-xs"
+                        >
+                          Mark sent
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Propose-reschedule modal */}
+      {rescheduleTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setRescheduleTarget(null)}>
+          <div
+            className="glass-card max-w-lg w-full p-6 max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h3 className="font-display text-xl text-cream">Propose Reschedule</h3>
+                <p className="text-emerald-300 text-xs mt-1">
+                  {rescheduleTarget.customer_name || 'Customer'} · currently {rescheduleTarget.date} at {fmtTime(rescheduleTarget.time_slot)}
+                </p>
+              </div>
+              <button onClick={() => setRescheduleTarget(null)} className="text-emerald-300 hover:text-cream transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="propose-date">New date</label>
+            <input
+              type="date"
+              id="propose-date"
+              value={propDate}
+              min={istToday()}
+              onChange={e => setPropDate(e.target.value)}
+              className="luxury-input mb-5"
+            />
+
+            <label className="block text-xs text-emerald-300 mb-2" htmlFor="propose-start">New start time</label>
+            {propRows.length === 0 ? (
+              <p className="text-amber-400 text-xs mb-4">This booking has no slot rows — reschedule is unavailable for legacy bookings.</p>
+            ) : availLoading ? (
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                {ALL_SLOTS.slice(0, 8).map(t => <div key={t} className="h-9 rounded-lg bg-emerald-900/40 animate-pulse" />)}
+              </div>
+            ) : !availLoaded ? (
+              <p className="text-amber-400 text-xs mb-4">Could not load availability for this date.</p>
+            ) : viableStarts.size === 0 ? (
+              <p className="text-amber-400 text-xs mb-4">No start times available for this date — try another day.</p>
+            ) : (
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                {ALL_SLOTS.map(t => {
+                  const viable = viableStarts.has(t)
+                  const selected = propStart === t
+                  return (
+                    <button
+                      key={t}
+                      disabled={!viable}
+                      onClick={() => setPropStart(t)}
+                      title={viable ? '' : 'Not available'}
+                      className={`py-2 text-xs rounded-lg border transition-colors duration-200 ${
+                        selected
+                          ? 'bg-gold-gradient text-emerald-950 border-gold-500 font-semibold'
+                          : viable
+                            ? 'border-emerald-700 text-cream hover:border-gold-500/60'
+                            : 'border-emerald-800/50 text-emerald-700 line-through cursor-not-allowed'
+                      }`}
+                    >
+                      {fmtTime(t)}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="propose-reason">Reason (optional)</label>
+            <textarea
+              id="propose-reason"
+              value={propReason}
+              onChange={e => setPropReason(e.target.value)}
+              rows={2}
+              placeholder="e.g. Stylist unavailable that morning"
+              className="luxury-input mb-6 resize-none"
+            />
+
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setRescheduleTarget(null)} className="btn-outline !px-5 !py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                onClick={handlePropose}
+                disabled={!propStart}
+                className="btn-gold !px-5 !py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Propose
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

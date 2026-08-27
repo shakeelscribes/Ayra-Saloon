@@ -146,6 +146,15 @@ const SORT_OPTIONS = [
   { id: 'duration_asc', label: 'Quickest first' },
 ]
 
+/* IST "today" (optionally offset by days). toISOString() is UTC — between
+   00:00 and 05:30 IST it still yields yesterday, which would default the
+   date picker and the min clamp to the past. Shift to IST wall-clock first. */
+const istDate = (days = 0) => {
+  const now = new Date()
+  return new Date(now.getTime() + (330 + now.getTimezoneOffset() + days * 1440) * 60000)
+    .toISOString().split('T')[0]
+}
+
 const CATEGORY_TABS = [
   { id: 'all',     label: 'All'      },
   { id: 'hair',     label: 'Hair'     },
@@ -456,7 +465,7 @@ export default function BookingComponent() {
   const [picked, setPicked] = useState([])        // ordered service objects
   const [picks, setPicks] = useState({})          // serviceId -> stylistId | 'any'
 
-  const [date, setDate] = useState(new Date(Date.now() + 864e5).toISOString().split('T')[0])
+  const [date, setDate] = useState(istDate(1))
   const [startTime, setStartTime] = useState(null)
   const [availMap, setAvailMap] = useState({})    // stylistId -> Set(free times)
   const [loadingSlots, setLoadingSlots] = useState(false)
@@ -498,8 +507,11 @@ export default function BookingComponent() {
         })
       }
       if (d.picks && typeof d.picks === 'object') setPicks((prev) => ({ ...d.picks, ...prev }))
-      if (d.date) setDate(d.date)
-      if (d.startTime) setStartTime(d.startTime)
+      // Clamp stale drafts: a date restored from a previous session can be in
+      // the past (or predate a catalog change). Past dates are never bookable.
+      const today = istDate(0)
+      if (d.date) setDate(d.date >= today ? d.date : istDate(1))
+      if (d.startTime && (!d.date || d.date >= today)) setStartTime(d.startTime)
       if (d.notes) setNotes(d.notes)
       if (typeof d.step === 'number' && d.step >= 0) setStep(d.step)
     } catch { /* ignore corrupt draft */ }
@@ -516,6 +528,25 @@ export default function BookingComponent() {
       }))
     } catch { /* quota or private mode — ignore */ }
   }, [forWhom, audience, forKids, picked, picks, date, startTime, notes, step])
+
+  /* ── Audience switches prune the cart ──
+     Picking a Women's service, going back, and switching to Men must not
+     carry the mismatched service into Schedule — the backend would 409 the
+     whole booking at submit. Mirror the Services list filter exactly. */
+  useEffect(() => {
+    if (!picked.length) return
+    const keep = picked.filter((svc) => {
+      if (forKids) return !!svc.for_kids
+      const mismatch = audience && svc.audience !== 'unisex' && svc.audience !== audience
+      return !mismatch && !svc.for_kids
+    })
+    if (keep.length === picked.length) return
+    const removed = new Set(
+      picked.filter((s) => !keep.some((k) => k.id === s.id)).map((s) => String(s.id))
+    )
+    setPicked(keep)
+    setPicks((pk) => Object.fromEntries(Object.entries(pk).filter(([sid]) => !removed.has(sid))))
+  }, [audience, forKids, picked])
 
   /* ── Availability for every involved stylist ── */
   const involvedStylistIds = useMemo(() => {
@@ -548,11 +579,10 @@ export default function BookingComponent() {
     return () => controller.abort()
   }, [date, involvedStylistIds.join('|')])
 
-  /* ── Cascade resolution: can ALL services fit starting at startTime? ── */
-  const resolution = useMemo(() => {
-    if (!startTime || picked.length === 0) return null
-    const startIdx = ALL_SLOTS.indexOf(startTime)
-    if (startIdx < 0 || startIdx + picked.length > ALL_SLOTS.length) return null
+  /* ── Cascade resolution: can ALL services fit starting at startIdx? ──
+     Shared by the Confirm gate and the Schedule grid (viableStarts) so
+     the two can never drift apart. */
+  const resolveCascade = (startIdx) => {
     const plan = []
     for (let i = 0; i < picked.length; i++) {
       const svc = picked[i]
@@ -565,23 +595,58 @@ export default function BookingComponent() {
       let stylist = null
       if (pick && pick !== 'any') {
         const st = stylists.find((x) => String(x.id) === String(pick))
-        stylist = st && ((st.categories || []).includes(svc.category) || !hasSpecialist) ? st : null
-      } else {
         stylist =
-          stylists.find(
-            (s) =>
-              (s.categories || []).includes(svc.category) &&
-              (availMap[s.id]?.has(slotTime) ?? false)
-          )
-          || (!hasSpecialist
-            ? stylists.find((s) => (availMap[s.id]?.has(slotTime) ?? false))
-            : null)
+          st &&
+          ((st.categories || []).includes(svc.category) || !hasSpecialist) &&
+          (availMap[st.id]?.has(slotTime) ?? false)
+            ? st
+            : null
+      } else {
+        // "No preference": deal the hour to a random stylist who is actually
+        // free at slotTime — never the same name by list order. If every
+        // specialist is busy the pool is empty and the start is blocked.
+        const freeSpecialists = stylists.filter(
+          (s) =>
+            (s.categories || []).includes(svc.category) &&
+            (availMap[s.id]?.has(slotTime) ?? false)
+        )
+        const pool = freeSpecialists.length > 0
+          ? freeSpecialists
+          : (!hasSpecialist
+            ? stylists.filter((s) => (availMap[s.id]?.has(slotTime) ?? false))
+            : [])
+        stylist = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null
       }
       if (!stylist) return { plan: [], blockedAt: i, conflictSlot: slotTime }
       plan.push({ service: svc, stylist, slotTime })
     }
     return { plan, blockedAt: null, conflictSlot: null }
+  }
+
+  const resolution = useMemo(() => {
+    if (!startTime || picked.length === 0) return null
+    const startIdx = ALL_SLOTS.indexOf(startTime)
+    if (startIdx < 0 || startIdx + picked.length > ALL_SLOTS.length) return null
+    return resolveCascade(startIdx)
   }, [startTime, picked, picks, stylists, availMap])
+
+  /* Start times where the whole cascade resolves against live availability —
+     lets the Schedule grid mark taken hours before the user taps them. */
+  const viableStarts = useMemo(() => {
+    const viable = new Set()
+    if (picked.length === 0) return viable
+    for (let s = 0; s + picked.length <= ALL_SLOTS.length; s++) {
+      if (resolveCascade(s).blockedAt === null) viable.add(ALL_SLOTS[s])
+    }
+    return viable
+  }, [picked, picks, stylists, availMap])
+
+  /* Availability counts as loaded once every involved stylist has a fetched
+     free-slot set — until then the grid stays neutral instead of flashing
+     everything as taken. */
+  const availLoaded = !loadingSlots && picked.length > 0 && involvedStylistIds.every((id) => availMap[id])
+  const maxStarts = Math.max(0, ALL_SLOTS.length - picked.length + 1)
+  const takenStarts = availLoaded ? ALL_SLOTS.slice(0, maxStarts).filter((t) => !viableStarts.has(t)).length : 0
 
   const canConfirm = Boolean(resolution?.plan?.length) && !resolution.blockedAt
 
@@ -942,7 +1007,7 @@ export default function BookingComponent() {
                     <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-3">Select Date</p>
                     <input
                       type="date"
-                      min={new Date().toISOString().split('T')[0]}
+                      min={istDate(0)}
                       value={date}
                       onChange={(e) => { setDate(e.target.value); setStartTime(null) }}
                       className="luxury-input max-w-xs"
@@ -962,20 +1027,24 @@ export default function BookingComponent() {
                         {ALL_SLOTS.map((t) => {
                           const startIdx = ALL_SLOTS.indexOf(t)
                           const fits = startIdx + picked.length <= ALL_SLOTS.length
-                          const disabled = !fits
+                          const taken = fits && availLoaded && !viableStarts.has(t)
+                          const disabled = !fits || taken
                           return (
                             <button
                               key={t}
                               type="button"
                               disabled={disabled}
+                              title={taken ? 'Already booked' : !fits ? 'Not enough time before closing' : undefined}
                               onPointerDown={() => !disabled && tap(4)}
                               onClick={() => { if (!disabled) { tap(8); setStartTime(t) } }}
-                              className={`tap-target py-2.5 rounded-xl text-sm font-medium ${
+                              className={`tap-target py-2.5 rounded-xl text-sm font-medium transition-colors duration-200 ${
                                 startTime === t
                                   ? 'bg-gold-gradient text-emerald-950 border border-gold-400 shadow-[0_0_0_1px_rgba(201,168,76,0.3)]'
-                                  : disabled
-                                    ? 'bg-emerald-950 text-emerald-700 border border-emerald-800 cursor-not-allowed line-through opacity-50'
-                                    : 'bg-emerald-900 text-cream border border-emerald-700 hover:border-gold-500/50'
+                                  : taken
+                                    ? 'bg-emerald-950/60 text-emerald-600 border border-emerald-800/60 line-through cursor-not-allowed'
+                                    : !fits
+                                      ? 'bg-emerald-950 text-emerald-700/70 border border-dashed border-emerald-800 cursor-not-allowed opacity-60'
+                                      : 'bg-emerald-900 text-cream border border-emerald-700 hover:border-gold-500/50'
                               }`}
                             >
                               {fmtTime(t)}
@@ -983,6 +1052,13 @@ export default function BookingComponent() {
                           )
                         })}
                       </div>
+                    )}
+                    {takenStarts > 0 && (
+                      <p className="mt-3 text-emerald-400/80 text-xs">
+                        {takenStarts >= maxStarts
+                          ? 'No start times left for this date — try another day.'
+                          : 'Struck-through times are already booked.'}
+                      </p>
                     )}
                     {startTime && resolution?.blockedAt !== null && (
                       <p className="mt-3 text-amber-400 text-xs flex items-center gap-1.5">
@@ -1053,44 +1129,50 @@ export default function BookingComponent() {
         </div>
 
         {/* Navigation — on Whom and Gender the HeroCard is the action, so the
-           right-side button is hidden. From Services onward, the standard
-           Continue / Confirm pattern takes over. */}
+            right-side button is hidden. From Services onward, the standard
+            Continue / Confirm pattern takes over. The bar is a sticky glass
+            material: it docks to the viewport bottom while the step content
+            scrolls beneath it, so the primary action is always in reach. */}
         {(() => {
           const isHeroStep = logicalStepName === 'whom' || logicalStepName === 'gender'
           const showContinue = !isHeroStep && step < STEPS.length - 1
           const showConfirm  = !isHeroStep && step === STEPS.length - 1
+          const hasActions = step > 0 || showContinue || showConfirm
+          if (!hasActions) return null
           return (
-            <div className="flex justify-between items-center">
-              {step > 0 ? (
-                <button onPointerDown={() => tap(5)} onClick={goBack} className="btn-outline flex items-center gap-2">
-                  <ChevronLeft className="w-4 h-4" /> Back
-                </button>
-              ) : (<div />)}
-              {showContinue && (
-                <button
-                  id="next-step-btn"
-                  type="button"
-                  onPointerDown={() => tap(5)}
-                  onClick={goNext}
-                  disabled={!canNext()}
-                  className={`btn-gold flex items-center gap-2 ${!canNext() ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  Continue <ChevronRight className="w-4 h-4" />
-                </button>
-              )}
-              {showConfirm && (
-                <button
-                  id="confirm-booking-btn"
-                  type="button"
-                  onPointerDown={() => tap(10)}
-                  onClick={handleSubmit}
-                  disabled={submitting || !user || !canConfirm}
-                  className="btn-gold flex items-center gap-2"
-                >
-                  {submitting ? 'Sending…' : user ? 'Confirm Booking' : 'Login to Book'}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              )}
+            <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-30">
+              <div className="flex justify-between items-center gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-950/80 backdrop-blur-xl shadow-xl shadow-black/40 px-4 py-3">
+                {step > 0 ? (
+                  <button onPointerDown={() => tap(5)} onClick={goBack} className="btn-outline flex items-center gap-2">
+                    <ChevronLeft className="w-4 h-4" /> Back
+                  </button>
+                ) : (<div />)}
+                {showContinue && (
+                  <button
+                    id="next-step-btn"
+                    type="button"
+                    onPointerDown={() => tap(5)}
+                    onClick={goNext}
+                    disabled={!canNext()}
+                    className={`btn-gold flex items-center gap-2 ${!canNext() ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  >
+                    Continue <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+                {showConfirm && (
+                  <button
+                    id="confirm-booking-btn"
+                    type="button"
+                    onPointerDown={() => tap(10)}
+                    onClick={handleSubmit}
+                    disabled={submitting || !user || !canConfirm}
+                    className="btn-gold flex items-center gap-2"
+                  >
+                    {submitting ? 'Sending…' : user ? 'Confirm Booking' : 'Login to Book'}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           )
         })()}

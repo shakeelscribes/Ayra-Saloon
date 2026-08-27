@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Clock, User, Scissors, XCircle, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Calendar, Clock, Scissors, XCircle, CheckCircle2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
 
@@ -25,25 +25,51 @@ const fmtTime = (t) => {
     return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
   }
 
+  // Multi-slot shape: one row per service. Fall back to the legacy singular
+  // fields for old snapshot bookings.
+  const slots = booking.slots?.length ? booking.slots : []
+  const total = slots.length
+    ? slots.reduce((s, sl) => s + (sl.service?.price || 0), 0)
+    : (booking.service?.price || 0)
+
   return (
     <div className={`glass-card p-6 border ${cfg.bg} transition-all duration-300 hover:shadow-lg`}>
       <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Scissors className="w-4 h-4 text-gold-400" />
-            <h3 className="font-display text-lg text-cream">{booking.service.name}</h3>
+            <h3 className="font-display text-lg text-cream">
+              {slots.length > 1
+                ? `${slots.length} services`
+                : (slots[0]?.service?.name || booking.service?.name || 'Booking')}
+            </h3>
           </div>
           <div className="flex flex-wrap gap-4 mt-3 text-sm text-emerald-300">
-            <span className="flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5" /> {booking.stylist.name}
-            </span>
             <span className="flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5" /> {fmtDate(booking.date)}
             </span>
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> {fmtTime(booking.time_slot)}
+              {slots.length > 1 ? ` · ${slots.length} hrs` : ''}
             </span>
           </div>
+          {slots.length > 0 && (
+            <div className="mt-3 space-y-1.5 border-t border-emerald-800/60 pt-3">
+              {slots.map(sl => (
+                <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
+                  <span className="text-gold-400 font-semibold w-14">{fmtTime(sl.time_slot)}</span>
+                  <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                  <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
+                  <span className="text-emerald-300 ml-auto">₹{sl.service?.price}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {booking.status === 'awaiting_reschedule' && booking.proposed_date && (
+            <p className="text-violet-300 text-xs mt-3">
+              Salon proposed: {fmtDate(booking.proposed_date)} at {fmtTime(booking.proposed_time_slot)}
+            </p>
+          )}
           {booking.notes && (
             <p className="text-emerald-400 text-xs mt-3 italic">"{booking.notes}"</p>
           )}
@@ -54,7 +80,7 @@ const fmtTime = (t) => {
             <StatusIcon className="w-3.5 h-3.5" />
             {cfg.label}
           </div>
-          <span className="text-gold-400 font-semibold">₹{booking.service.price}</span>
+          <span className="text-gold-400 font-semibold">₹{total.toLocaleString('en-IN')}</span>
           {booking.status === 'confirmed' && (
             <button
               onClick={() => onCancel(booking.id)}

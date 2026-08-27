@@ -15,11 +15,18 @@ function StatCard({ icon: Icon, label, value, color }) {
   )
 }
 
+/* IST "today" — toISOString() is UTC and shows yesterday between 00:00–05:30
+   IST, which would open the dashboard filtered to the wrong day. */
+const istToday = () => {
+  const now = new Date()
+  return new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000).toISOString().split('T')[0]
+}
+
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState([])
   const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [selectedDate, setSelectedDate] = useState(istToday())
 
   const fetchBookings = async (date) => {
     setLoading(true)
@@ -89,8 +96,17 @@ export default function AdminDashboard() {
     return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
   }
 
-  // Group confirmed bookings by time
-  const timeline = [...confirmed].sort((a, b) => a.time_slot.localeCompare(b.time_slot))
+  // Multi-slot shape: a booking holds N slots (one per service). Fall back to
+  // the legacy singular fields for old snapshot bookings.
+  const bookingSlots = (b) => (b.slots?.length ? b.slots : [])
+  const firstSlotTime = (b) => b.slots?.[0]?.time_slot || b.time_slot || ''
+  const bookingTotal = (b) =>
+    b.slots?.length
+      ? b.slots.reduce((s, sl) => s + (sl.service?.price || 0), 0)
+      : (b.service?.price || 0)
+
+  // Group confirmed bookings by first-slot time
+  const timeline = [...confirmed].sort((a, b) => firstSlotTime(a).localeCompare(firstSlotTime(b)))
 
   return (
     <div className="min-h-screen pt-24 pb-16 px-6">
@@ -108,7 +124,7 @@ export default function AdminDashboard() {
           <StatCard icon={AlertCircle} label="Pending Approval" value={pending.length} color="bg-amber-700" />
           <StatCard icon={CheckCircle2} label="Confirmed" value={confirmed.length} color="bg-emerald-700" />
           <StatCard icon={XCircle} label="Cancelled" value={cancelled.length} color="bg-red-900" />
-          <StatCard icon={Users} label="Revenue (est.)" value={`₹${confirmed.reduce((s, b) => s + b.service.price, 0).toLocaleString('en-IN')}`} color="bg-gold-600" />
+          <StatCard icon={Users} label="Revenue (est.)" value={`₹${confirmed.reduce((s, b) => s + bookingTotal(b), 0).toLocaleString('en-IN')}`} color="bg-gold-600" />
         </div>
 
         {/* Date picker */}
@@ -145,20 +161,22 @@ export default function AdminDashboard() {
             <div className="space-y-3">
               {pending.map(b => (
                 <div key={b.id} className="glass-card p-4 border border-amber-800/50">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="text-center min-w-[60px]">
-                        <p className="text-amber-400 font-semibold text-sm">{fmtTime(b.time_slot)}</p>
-                        <p className="text-emerald-300 text-xs">{b.date}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0 grow">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</p>
+                        <span className="text-emerald-300 text-xs">{b.date}</span>
+                        <span className="text-gold-400 text-xs font-semibold">₹{bookingTotal(b).toLocaleString('en-IN')}</span>
                       </div>
-                      <div className="w-px h-10 bg-emerald-700" />
-                      <div>
-                        <p className="text-cream font-medium text-sm">{b.service?.name}</p>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-emerald-300">
-                          <span className="flex items-center gap-1"><User className="w-3 h-3" />{b.customer_name || 'Customer'}</span>
-                          <span className="flex items-center gap-1"><Scissors className="w-3 h-3" />{b.stylist?.name}</span>
-                          <span>₹{b.service?.price}</span>
-                        </div>
+                      <div className="mt-2 space-y-1.5">
+                        {bookingSlots(b).map(sl => (
+                          <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
+                            <span className="text-amber-400 font-semibold w-16">{fmtTime(sl.time_slot)}</span>
+                            <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                            <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
+                            <span className="text-emerald-300">₹{sl.service?.price}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -202,19 +220,11 @@ export default function AdminDashboard() {
               <div className="space-y-3">
                 {timeline.map(b => (
                   <div key={b.id} className="glass-card p-4 border border-emerald-800 hover:border-gold-500/40 transition-all duration-200">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-4">
-                        <div className="text-center min-w-[60px]">
-                          <p className="text-gold-400 font-semibold text-sm">{fmtTime(b.time_slot)}</p>
-                        </div>
-                        <div className="w-px h-10 bg-emerald-700" />
-                        <div>
-                          <p className="text-cream font-medium text-sm">{b.service.name}</p>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-emerald-300">
-                            <span className="flex items-center gap-1"><User className="w-3 h-3" />{b.stylist.name}</span>
-                            <span>₹{b.service.price}</span>
-                          </div>
-                        </div>
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-300">
+                        <span className="flex items-center gap-1.5"><User className="w-3.5 h-3.5" /><span className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</span></span>
+                        <span>{bookingSlots(b).length || 1} service{(bookingSlots(b).length || 1) > 1 ? 's' : ''}</span>
+                        <span className="text-gold-400 font-semibold">₹{bookingTotal(b).toLocaleString('en-IN')}</span>
                       </div>
                       <button
                         onClick={() => handleCancel(b.id)}
@@ -222,6 +232,16 @@ export default function AdminDashboard() {
                       >
                         Cancel
                       </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {bookingSlots(b).map(sl => (
+                        <div key={sl.id} className="flex flex-wrap items-center gap-3 text-sm border-t border-emerald-800/60 pt-1.5">
+                          <span className="text-gold-400 font-semibold text-xs w-16">{fmtTime(sl.time_slot)}</span>
+                          <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                          <span className="flex items-center gap-1 text-emerald-300 text-xs"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
+                          <span className="text-emerald-300 text-xs ml-auto">₹{sl.service?.price}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -237,14 +257,22 @@ export default function AdminDashboard() {
             <div className="space-y-3">
               {Object.entries(
                 confirmed.reduce((acc, b) => {
-                  acc[b.stylist.name] = (acc[b.stylist.name] || 0) + 1
+                  // Count slots per stylist — a 2-service booking occupies a
+                  // stylist (or two) for 2 hours, not 1.
+                  const rows = bookingSlots(b).length
+                    ? bookingSlots(b)
+                    : (b.stylist ? [{ stylist: b.stylist }] : [])
+                  rows.forEach(sl => {
+                    const name = sl.stylist?.name
+                    if (name) acc[name] = (acc[name] || 0) + 1
+                  })
                   return acc
                 }, {})
               ).map(([name, count]) => (
                 <div key={name} className="glass-card p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-cream text-sm font-medium">{name}</span>
-                    <span className="text-gold-400 text-sm font-semibold">{count} apt{count !== 1 ? 's' : ''}</span>
+                    <span className="text-gold-400 text-sm font-semibold">{count} slot{count !== 1 ? 's' : ''}</span>
                   </div>
                   <div className="w-full bg-emerald-900 rounded-full h-1.5">
                     <div

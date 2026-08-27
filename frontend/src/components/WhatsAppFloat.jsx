@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 const WHATSAPP_URL =
   'https://wa.me/918270606750?text=' +
@@ -20,6 +21,9 @@ export function WhatsAppIcon({ className }) {
  */
 export default function WhatsAppFloat() {
   const [visible, setVisible] = useState(false)
+  const { pathname } = useLocation()
+  // On /book a sticky action bar docks at the bottom — ride above it.
+  const onBooking = pathname.startsWith('/book')
 
   useEffect(() => {
     const onScroll = () => setVisible(window.scrollY > 300)
@@ -34,7 +38,7 @@ export default function WhatsAppFloat() {
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Chat with Ayra Saloon on WhatsApp"
-      className={`wa-float fixed bottom-5 right-5 z-40 flex items-center justify-center w-13 h-13 p-3.5 rounded-full bg-[#25d366] text-white shadow-xl shadow-black/30 transition-all duration-200 ease-out active:scale-95 ${
+      className={`wa-float fixed ${onBooking ? 'bottom-24' : 'bottom-5'} right-5 z-40 flex items-center justify-center w-13 h-13 p-3.5 rounded-full bg-[#25d366] text-white shadow-xl shadow-black/30 transition-all duration-200 ease-out active:scale-95 ${
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none'
       }`}
     >

@@ -12,7 +12,7 @@ const statusConfig = {
   cancelled:           { label: 'Cancelled',           color: 'text-red-400',     bg: 'bg-red-900/20 border-red-800',            Icon: XCircle },
 }
 
-function BookingCard({ booking, onCancel }) {
+function BookingCard({ booking, onCancel, onRespond }) {
   const cfg = statusConfig[booking.status] || statusConfig.confirmed
   const StatusIcon = cfg.Icon
 
@@ -66,9 +66,28 @@ const fmtTime = (t) => {
             </div>
           )}
           {booking.status === 'awaiting_reschedule' && booking.proposed_date && (
-            <p className="text-violet-300 text-xs mt-3">
-              Salon proposed: {fmtDate(booking.proposed_date)} at {fmtTime(booking.proposed_time_slot)}
-            </p>
+            <div className="mt-3 rounded-xl border border-violet-800/50 bg-violet-900/10 p-3.5">
+              <p className="text-violet-300 text-xs mb-1.5">Salon proposed moving your visit:</p>
+              <p className="text-sm">
+                <span className="text-emerald-500 line-through">{fmtDate(booking.date)} · {fmtTime(booking.time_slot)}</span>
+                <span className="text-violet-300 mx-2">→</span>
+                <span className="text-cream font-medium">{fmtDate(booking.proposed_date)} · {fmtTime(booking.proposed_time_slot)}</span>
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => onRespond(booking.id, true)}
+                  className="btn-gold !px-4 !py-1.5 text-xs"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={() => onRespond(booking.id, false)}
+                  className="btn-outline !px-4 !py-1.5 text-xs"
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
           )}
           {booking.notes && (
             <p className="text-emerald-400 text-xs mt-3 italic">"{booking.notes}"</p>
@@ -81,7 +100,7 @@ const fmtTime = (t) => {
             {cfg.label}
           </div>
           <span className="text-gold-400 font-semibold">₹{total.toLocaleString('en-IN')}</span>
-          {booking.status === 'confirmed' && (
+          {(booking.status === 'confirmed' || booking.status === 'awaiting_reschedule') && (
             <button
               onClick={() => onCancel(booking.id)}
               className="text-xs text-red-400 hover:text-red-300 transition-colors underline"
@@ -124,7 +143,20 @@ export default function MyAppointments() {
     }
   }
 
-  const filtered = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
+  const handleRespond = async (id, accept) => {
+    if (!accept && !confirm('Decline the proposed time? The booking request will be closed.')) return
+    try {
+      await client.post(`/bookings/${id}/${accept ? 'accept' : 'decline'}-reschedule`)
+      toast.success(accept ? 'Reschedule accepted' : 'Reschedule declined')
+      fetchBookings()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not update reschedule')
+    }
+  }
+
+  const filtered = filter === 'all'
+    ? bookings
+    : bookings.filter(b => b.status === (filter === 'reschedule' ? 'awaiting_reschedule' : filter))
 
   return (
     <div className="min-h-screen pt-24 pb-16 px-6">
@@ -137,7 +169,7 @@ export default function MyAppointments() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 justify-center mb-8 flex-wrap">
-          {['all', 'pending', 'confirmed', 'declined', 'cancelled'].map((f) => (
+          {['all', 'pending', 'confirmed', 'reschedule', 'declined', 'cancelled'].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -164,7 +196,7 @@ export default function MyAppointments() {
         ) : (
           <div className="space-y-4 animate-fade-in">
             {filtered.map(b => (
-              <BookingCard key={b.id} booking={b} onCancel={handleCancel} />
+              <BookingCard key={b.id} booking={b} onCancel={handleCancel} onRespond={handleRespond} />
             ))}
           </div>
         )}

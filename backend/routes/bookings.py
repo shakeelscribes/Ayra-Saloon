@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 from beanie import PydanticObjectId
 import models, schemas
 from auth import get_current_user, get_current_admin
@@ -90,7 +91,9 @@ async def write_notification(booking: models.Booking, user: models.User, kind: s
     deep_link = ""
     if phone:
         digits = "".join(ch for ch in phone if ch.isdigit())
-        deep_link = f"https://wa.me/{digits}?text={text.replace(' ', '%20')}"
+        # quote() — service names like "Hair Wash & Blowout" contain characters
+        # that would break the wa.me query string if only spaces were encoded.
+        deep_link = f"https://wa.me/{digits}?text={quote(text)}"
     await models.Notification(
         booking_id=booking.id,
         user_id=user.id,
@@ -375,38 +378,70 @@ async def propose_reschedule(
     if start_idx + n > len(ALL_SLOTS):
         raise HTTPException(status_code=400, detail="Not enough time before closing.")
 
-    # Conflict check excluding this booking's own rows (they get replaced)
-    own_times = {s.time_slot for s in await models.BookingSlot.find(
-        models.BookingSlot.booking_id == booking.id
-    ).to_list()} if body.date == booking.date else set()
+    # ── Freshness guard (IST): never propose a slot in the past ───────────────
+    now_ist = _ist_now()
+    today_ist = now_ist.date().isoformat()
+    if body.date < today_ist:
+        raise HTTPException(status_code=400, detail="That date has already passed.")
+    if body.date == today_ist:
+        now_hm = now_ist.strftime("%H:%M")
+        if any(t <= now_hm for t in ALL_SLOTS[start_idx:start_idx + n]):
+            raise HTTPException(
+                status_code=400,
+                detail="That time has already passed today. Pick a later slot.",
+            )
 
-    for i in range(n):
+    # Keep each slot's own service → stylist mapping and duration; only the
+    # date/start moves. (Cascade bookings can involve several stylists.)
+    current_rows = await models.BookingSlot.find(
+        models.BookingSlot.booking_id == booking.id
+    ).sort(models.BookingSlot.sequence).to_list()
+    if len(current_rows) != n:
+        raise HTTPException(
+            status_code=409,
+            detail="Booking slots are out of sync with the booking. Contact support.",
+        )
+
+    # Conflict checks per slot's OWN stylist + the customer's other bookings,
+    # excluding this booking's own rows (they all get replaced below).
+    own_keys = {(s.date, s.time_slot) for s in current_rows}
+    for i, row in enumerate(current_rows):
         t = ALL_SLOTS[start_idx + i]
-        if t in own_times:
+        if (body.date, t) in own_keys:
             continue
-        conflict = await models.BookingSlot.find_one(
-            models.BookingSlot.stylist_id == booking.stylist_id,
+        stylist_conflict = await models.BookingSlot.find_one(
+            models.BookingSlot.stylist_id == row.stylist_id,
             models.BookingSlot.date == body.date,
             models.BookingSlot.time_slot == t,
         )
-        if conflict:
+        if stylist_conflict:
             raise HTTPException(
                 status_code=409,
                 detail=f"{t} on {body.date} is no longer available. Pick a different time.",
             )
+        customer_conflict = await models.BookingSlot.find_one(
+            models.BookingSlot.user_id == booking.user_id,
+            models.BookingSlot.date == body.date,
+            models.BookingSlot.time_slot == t,
+        )
+        if customer_conflict and customer_conflict.booking_id != booking.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"The customer already has another booking at {t} on {body.date}.",
+            )
 
-    # Move the whole block: old rows out, new rows in
+    # Move the whole block: old rows out, new rows in (same stylists/durations)
     await models.BookingSlot.find(models.BookingSlot.booking_id == booking.id).delete()
-    for i, sid in enumerate(booking.services):
+    for i, row in enumerate(current_rows):
         await models.BookingSlot(
             booking_id=booking.id,
             user_id=booking.user_id,
-            service_id=sid,
-            stylist_id=booking.stylist_id,
+            service_id=row.service_id,
+            stylist_id=row.stylist_id,
             sequence=i,
             date=body.date,
             time_slot=ALL_SLOTS[start_idx + i],
-            duration_mins=60,
+            duration_mins=row.duration_mins,
         ).insert()
 
     booking.proposed_date = body.date

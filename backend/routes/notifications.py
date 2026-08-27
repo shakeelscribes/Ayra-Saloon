@@ -14,6 +14,17 @@ async def my_notifications(current_user: models.User = Depends(get_current_user)
     ).sort(-models.Notification.created_at).to_list()
 
 
+@router.get("/all", response_model=List[schemas.NotificationOut])
+async def all_notifications(
+    limit: int = 50,
+    _admin: models.User = Depends(get_current_admin),
+):
+    """WhatsApp panel feed — recent notifications across all customers."""
+    return await models.Notification.find_all().sort(
+        -models.Notification.created_at
+    ).limit(max(1, min(limit, 200))).to_list()
+
+
 @router.post("/{notification_id}/mark-sent", response_model=schemas.NotificationOut)
 async def mark_sent(
     notification_id: PydanticObjectId,

@@ -648,6 +648,13 @@ export default function BookingComponent() {
   const maxStarts = Math.max(0, ALL_SLOTS.length - picked.length + 1)
   const takenStarts = availLoaded ? ALL_SLOTS.slice(0, maxStarts).filter((t) => !viableStarts.has(t)).length : 0
 
+  /* A stale selection must never masquerade as valid: if the chosen start
+     stops being viable (stylist changed on the step above, availability
+     moved), drop it — same contract as changing the date. */
+  useEffect(() => {
+    if (startTime && availLoaded && !viableStarts.has(startTime)) setStartTime(null)
+  }, [startTime, availLoaded, viableStarts])
+
   const canConfirm = Boolean(resolution?.plan?.length) && !resolution.blockedAt
 
   /* ── Submit ── */
@@ -1038,10 +1045,10 @@ export default function BookingComponent() {
                               onPointerDown={() => !disabled && tap(4)}
                               onClick={() => { if (!disabled) { tap(8); setStartTime(t) } }}
                               className={`tap-target py-2.5 rounded-xl text-sm font-medium transition-colors duration-200 ${
-                                startTime === t
-                                  ? 'bg-gold-gradient text-emerald-950 border border-gold-400 shadow-[0_0_0_1px_rgba(201,168,76,0.3)]'
-                                  : taken
-                                    ? 'bg-emerald-950/60 text-emerald-600 border border-emerald-800/60 line-through cursor-not-allowed'
+                                taken
+                                  ? 'bg-emerald-950/60 text-emerald-600 border border-emerald-800/60 line-through cursor-not-allowed'
+                                  : startTime === t
+                                    ? 'bg-gold-gradient text-emerald-950 border border-gold-400 shadow-[0_0_0_1px_rgba(201,168,76,0.3)]'
                                     : !fits
                                       ? 'bg-emerald-950 text-emerald-700/70 border border-dashed border-emerald-800 cursor-not-allowed opacity-60'
                                       : 'bg-emerald-900 text-cream border border-emerald-700 hover:border-gold-500/50'

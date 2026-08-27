@@ -38,6 +38,9 @@ class ServiceOut(BaseModel):
     category: str
     audience: str = "unisex"
     for_kids: bool = False
+    kid_gender: Optional[str] = None
+    popularity: int = 50
+    bookable: bool = True
     model_config = {"from_attributes": True}
 
 # ── Stylists ──────────────────────────────────────────────────────────────────

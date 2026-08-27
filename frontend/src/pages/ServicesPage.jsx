@@ -16,8 +16,16 @@ import {
 } from 'lucide-react'
 import client from '../api/client'
 import usePageMeta from '../hooks/usePageMeta'
+import { WhatsAppIcon } from '../components/WhatsAppFloat'
 
 const EASE_OUT = [0.16, 1, 0.3, 1]
+
+/* Pre-filled WhatsApp enquiry for a specific service (bridal etc.). */
+const waEnquire = (service) =>
+  'https://wa.me/918270606750?text=' +
+  encodeURIComponent(
+    `Hi Ayra Saloon! I'm interested in ${service.name} (₹${service.price.toLocaleString('en-IN')}). Please share consultation details.`
+  )
 
 /* Known categories — anything else in the DB auto-discovers with defaults. */
 const CATEGORY_META = {
@@ -133,13 +141,25 @@ function ServiceCard({ service, index }) {
           <Clock className="w-3.5 h-3.5 text-gold-500" aria-hidden="true" />
           {service.duration_mins} min
         </span>
-        <Link
-          to={`/book?service=${service.id}`}
-          className="btn-gold !px-4 !py-2 text-xs inline-flex items-center gap-1.5"
-        >
-          Book this
-          <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-        </Link>
+        {service.bookable === false ? (
+          <a
+            href={waEnquire(service)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5"
+          >
+            Enquire
+            <WhatsAppIcon className="w-3.5 h-3.5" aria-hidden="true" />
+          </a>
+        ) : (
+          <Link
+            to={`/book?service=${service.id}`}
+            className="btn-gold !px-4 !py-2 text-xs inline-flex items-center gap-1.5"
+          >
+            Book this
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+          </Link>
+        )}
       </div>
     </motion.div>
   )
@@ -269,7 +289,38 @@ export default function ServicesPage() {
               </div>
 
               {meta.disclosure && (
-                <p className="mt-5 text-sm text-cream/55 italic">{meta.disclosure}</p>
+                <div className="mt-8 glass-card p-6 sm:p-8">
+                  <div className="flex items-start gap-4">
+                    <div className="shrink-0 w-11 h-11 rounded-xl bg-gold-500/10 border border-gold-500/25 flex items-center justify-center">
+                      <Icon className="w-5 h-5 text-gold-400" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-display text-xl text-cream">
+                        Bridal & Groom looks, arranged personally
+                      </h3>
+                      <p className="mt-2 text-sm text-cream/70 leading-relaxed">
+                        {meta.disclosure}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <a
+                          href={waEnquire({ name: 'Bridal & Groom Makeup', price: 2500 })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-gold !px-5 !py-2.5 text-xs inline-flex items-center gap-2"
+                        >
+                          <WhatsAppIcon className="w-4 h-4" aria-hidden="true" />
+                          WhatsApp us
+                        </a>
+                        <a
+                          href="tel:+918270606750"
+                          className="btn-outline !px-5 !py-2.5 text-xs inline-flex items-center gap-2"
+                        >
+                          Call +91 82706 06750
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
             </section>
           )

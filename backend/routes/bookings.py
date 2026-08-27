@@ -128,15 +128,27 @@ async def create_booking(
         if service.id in seen_services:
             raise HTTPException(status_code=400, detail="Each service can be added only once.")
         seen_services.add(service.id)
+        if service.bookable is False:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{service.name}' is enquiry-only — please contact us to book it.",
+            )
 
         stylist = await models.Stylist.get(item.stylist_id)
         if not stylist:
             raise HTTPException(status_code=404, detail=f"Stylist not found (item {i + 1}).")
+        # Category guard: enforce only when the category actually has a
+        # specialist. If NO stylist handles it (rare fallback), any stylist
+        # is accepted — mirrors the frontend's show-all-stylists fallback.
         if (stylist.categories or []) and service.category not in stylist.categories:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{stylist.name} does not handle {service.category} services.",
-            )
+            specialist_count = await models.Stylist.find(
+                {"categories": service.category}
+            ).count()
+            if specialist_count > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{stylist.name} does not handle {service.category} services.",
+                )
 
         if audience is None and (service.audience or "unisex") != "unisex":
             audience = service.audience

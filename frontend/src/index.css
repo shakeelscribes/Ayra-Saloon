@@ -212,7 +212,7 @@
 
   /* Step indicator — exact properties, never transition:all */
   .step-dot {
-    @apply w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm;
+    @apply w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-semibold text-xs sm:text-sm;
     transition:
       background-color 300ms var(--ease-out),
       color 300ms var(--ease-out),
@@ -228,6 +228,48 @@
   .step-dot.inactive {
     @apply bg-emerald-900 text-emerald-600 border border-emerald-700;
   }
+
+  /* Tap target — Apple-style press feedback. 100ms scale on pointer-down,
+     200ms color/border transitions. transform-only so it stays GPU-composited. */
+  .tap-target {
+    transition:
+      transform 100ms ease-out,
+      border-color 200ms var(--ease-out),
+      background-color 200ms var(--ease-out),
+      box-shadow 200ms var(--ease-out);
+  }
+  .tap-target:active {
+    transform: scale(0.97);
+  }
+
+  /* Chevron slide — used on hero cards. Real-pointer hover only so touch
+     taps don't trigger it. */
+  @media (hover: hover) and (pointer: fine) {
+    .chevron-slide {
+      transition: transform 200ms var(--ease-out), color 200ms var(--ease-out);
+    }
+    .group:hover .chevron-slide {
+      transform: translateX(4px);
+    }
+  }
+}
+
+/* Hero card entrance — opacity + small y shift. CSS keyframe so it doesn't
+   re-fire on every render (only on mount), and stays off the React reconciler
+   path that was causing blank-screen races. */
+@keyframes hero-card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Step fade — used by BookingComponent step container. Plain CSS so the
+   step swap doesn't depend on AnimatePresence/motion reconciler. */
+@keyframes step-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-step-fade {
+  animation: step-fade-in 200ms var(--ease-out) both;
 }
 
 /* Particle / shimmer hero overlay */
@@ -249,5 +291,164 @@
   .wa-float:hover {
     transform: scale(1.06);
     transition-duration: 150ms;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Booking flow — services screen (mobile-first)
+   Sticky category tabs, sticky search, GPU-friendly service rows.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Search input — search field, 44px min hit area for touch. */
+.search-input {
+  @apply w-full bg-emerald-900/70 border border-emerald-700 text-cream
+         pl-11 pr-10 py-3 rounded-2xl min-h-[44px] text-sm
+         focus:outline-none focus:border-gold-500
+         placeholder-emerald-600/70;
+  transition: border-color 200ms var(--ease-out),
+              background-color 200ms var(--ease-out);
+}
+
+/* Category tab — pills, 36px tall, 44px hit area on touch via padding. */
+.category-tab {
+  @apply inline-flex items-center gap-1.5 px-4 py-2 min-h-[36px]
+         rounded-full text-sm font-medium whitespace-nowrap
+         border border-emerald-700 text-cream/80
+         bg-emerald-900/40 select-none;
+  transition:
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out),
+    border-color 200ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.category-tab.active {
+  @apply bg-gold-gradient text-emerald-950 border-gold-400 font-semibold;
+  box-shadow: 0 0 0 1px rgba(201, 168, 76, 0.3);
+}
+@media (hover: hover) and (pointer: fine) {
+  .category-tab:not(.active):hover { border-color: rgba(201, 168, 76, 0.5); }
+}
+
+/* Horizontal scroll container for category tabs on mobile. */
+.category-tabs-scroll {
+  @apply flex gap-2 overflow-x-auto pb-1 -mx-1 px-1;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.category-tabs-scroll::-webkit-scrollbar { display: none; }
+.category-tabs-scroll .category-tab { scroll-snap-align: start; }
+
+/* Service row — the new tile in the services list. */
+.service-row {
+  @apply w-full text-left flex items-center gap-3 p-3.5
+         rounded-2xl border border-emerald-700/60
+         bg-emerald-900/40 min-h-[72px] select-none;
+  transition:
+    transform 100ms ease-out,
+    border-color 200ms var(--ease-out),
+    background-color 200ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.service-row:active { transform: scale(0.98); }
+.service-row.selected {
+  @apply border-gold-500 bg-gold-500/10;
+}
+.service-row .icon-chip {
+  @apply shrink-0 w-12 h-12 rounded-xl flex items-center justify-center
+         border border-gold-500/15 bg-emerald-900/60 text-gold-400;
+  transition: background-color 200ms var(--ease-out),
+              color 200ms var(--ease-out),
+              border-color 200ms var(--ease-out);
+}
+.service-row.selected .icon-chip {
+  background: linear-gradient(135deg, #c9a84c, #f0d080);
+  @apply text-emerald-950 border-gold-400;
+}
+.service-row .name { @apply text-cream font-medium text-sm leading-tight; }
+.service-row .desc { @apply text-emerald-400 text-xs mt-0.5 truncate; }
+.service-row .meta { @apply text-cream/90 text-sm font-semibold whitespace-nowrap; }
+.service-row .meta-sub { @apply text-emerald-500 text-[11px] mt-0.5 text-right; }
+
+/* Boy/Girl chip on kid services — sky for boy, pink for girl. */
+.service-row .gender-chip {
+  @apply text-[9px] uppercase tracking-widest font-semibold
+         px-1.5 py-0.5 rounded-full border;
+  flex-shrink: 0;
+}
+.service-row .gender-chip.boy  {
+  @apply border-sky-400/40 bg-sky-400/10 text-sky-300;
+}
+.service-row .gender-chip.girl {
+  @apply border-pink-400/40 bg-pink-400/10 text-pink-300;
+}
+
+/* Stagger entrance for service rows — capped at 8 to keep it snappy. */
+@keyframes service-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.service-row { animation: service-row-in 220ms var(--ease-out) both; }
+.service-row:nth-child(1)  { animation-delay: 0ms; }
+.service-row:nth-child(2)  { animation-delay: 30ms; }
+.service-row:nth-child(3)  { animation-delay: 60ms; }
+.service-row:nth-child(4)  { animation-delay: 90ms; }
+.service-row:nth-child(5)  { animation-delay: 120ms; }
+.service-row:nth-child(6)  { animation-delay: 150ms; }
+.service-row:nth-child(7)  { animation-delay: 180ms; }
+.service-row:nth-child(8)  { animation-delay: 210ms; }
+.service-row:nth-child(n+9) { animation-delay: 240ms; }
+
+/* Running-total bar — sticky at bottom of list container, translucent. */
+.running-total {
+  @apply sticky bottom-2 z-10 mx-auto w-fit
+         flex items-center gap-2.5 px-5 py-2.5
+         rounded-full border border-gold-500/30
+         bg-emerald-950/75 backdrop-blur-md
+         text-sm shadow-lg shadow-black/30;
+  transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out);
+}
+.running-total.enter { transform: translateY(8px); opacity: 0; pointer-events: none; }
+.running-total.shown { transform: translateY(0); opacity: 1; }
+
+/* Step counter — replaces the "Book Your Visit" display heading on hero screens. */
+.step-counter {
+  @apply text-gold-400 text-[11px] font-semibold tracking-widest uppercase;
+}
+
+/* Sticky header for tabs + search so they don't scroll out.
+   Color note: the .glass-card behind it is rgba(26,58,42,0.5) composited
+   over the #0d1f17 page, which renders on screen as ≈ rgb(20,45,33). Using
+   that composited color (at high alpha) makes the band blend seamlessly
+   with the card instead of reading as a foreign strip. */
+.services-sticky-header {
+  @apply sticky top-0 z-20 -mx-1 px-1 pt-1 pb-3 backdrop-blur-md;
+  background-color: rgba(20, 45, 33, 0.95);
+}
+
+/* Sort dropdown trigger. */
+.sort-trigger {
+  @apply inline-flex items-center gap-1.5 px-3 py-2 min-h-[36px]
+         rounded-full text-xs font-medium whitespace-nowrap
+         border border-emerald-700 text-cream/80 bg-emerald-900/40
+         select-none;
+  transition: border-color 200ms var(--ease-out), background-color 200ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .sort-trigger:hover { border-color: rgba(201, 168, 76, 0.5); }
+}
+
+/* Reduced-motion fallback (Apple §14) — opacity-only, no transforms. */
+@media (prefers-reduced-motion: reduce) {
+  .service-row,
+  .service-row:active,
+  .category-tab,
+  .running-total {
+    animation: none !important;
+    transform: none !important;
+    transition: opacity 150ms ease, background-color 150ms ease,
+                color 150ms ease, border-color 150ms ease;
   }
 }

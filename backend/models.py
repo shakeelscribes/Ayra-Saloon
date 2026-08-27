@@ -39,6 +39,9 @@ class Service(Document):
     category: str = "general"          # hair, colour, spa, grooming, facial, tattoo, bridal
     audience: str = "unisex"           # "men" | "women" | "unisex"
     for_kids: bool = False
+    kid_gender: Optional[str] = None   # "boy" | "girl" | None — only set on for_kids=True services
+    popularity: int = 50               # 0–100, how commonly booked (drives default "Recommended" sort)
+    bookable: bool = True              # False = enquiry-only (e.g. bridal — partner artists, not self-bookable)
 
     class Settings:
         name = "services"

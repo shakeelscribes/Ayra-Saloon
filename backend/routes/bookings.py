@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
+from datetime import datetime, timedelta, timezone
 from beanie import PydanticObjectId
 import models, schemas
 from auth import get_current_user, get_current_admin
@@ -8,6 +9,15 @@ from routes.availability import ALL_SLOTS
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
 SALON_PHONE = "918270606750"
+
+# The salon runs on IST. Date/slot freshness must be judged in IST — using UTC
+# would accept "today 10:00" bookings placed at 05:15 IST (still 23:45 UTC
+# "yesterday") and mis-handle the midnight window.
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _ist_now() -> datetime:
+    return datetime.now(IST)
 
 
 def _now():
@@ -49,6 +59,8 @@ async def serialize_booking(booking: models.Booking) -> schemas.BookingOut:
                 id=s.id, service_id=s.service_id, stylist_id=s.stylist_id,
                 sequence=s.sequence, date=s.date, time_slot=s.time_slot,
                 duration_mins=s.duration_mins,
+                service=schemas.ServiceOut.model_validate(svc) if (svc := await models.Service.get(s.service_id)) else None,
+                stylist=schemas.StylistOut.model_validate(sty) if (sty := await models.Stylist.get(s.stylist_id)) else None,
             ) for s in slots
         ],
         audience=booking.audience,
@@ -117,6 +129,19 @@ async def create_booking(
             detail=f"Not enough time before closing for {n} service(s). Pick an earlier start.",
         )
 
+    # ── Freshness guard (IST): no bookings in the past ────────────────────────
+    now_ist = _ist_now()
+    today_ist = now_ist.date().isoformat()
+    if booking_data.date < today_ist:
+        raise HTTPException(status_code=400, detail="That date has already passed.")
+    if booking_data.date == today_ist:
+        now_hm = now_ist.strftime("%H:%M")
+        if any(t <= now_hm for t in ALL_SLOTS[start_idx:start_idx + n]):
+            raise HTTPException(
+                status_code=400,
+                detail="That time has already passed today. Pick a later slot.",
+            )
+
     # ── Validate + resolve every item (service, stylist, its own slot time) ───
     resolved = []
     audience = None
@@ -128,15 +153,27 @@ async def create_booking(
         if service.id in seen_services:
             raise HTTPException(status_code=400, detail="Each service can be added only once.")
         seen_services.add(service.id)
+        if service.bookable is False:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{service.name}' is enquiry-only — please contact us to book it.",
+            )
 
         stylist = await models.Stylist.get(item.stylist_id)
         if not stylist:
             raise HTTPException(status_code=404, detail=f"Stylist not found (item {i + 1}).")
+        # Category guard: enforce only when the category actually has a
+        # specialist. If NO stylist handles it (rare fallback), any stylist
+        # is accepted — mirrors the frontend's show-all-stylists fallback.
         if (stylist.categories or []) and service.category not in stylist.categories:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{stylist.name} does not handle {service.category} services.",
-            )
+            specialist_count = await models.Stylist.find(
+                {"categories": service.category}
+            ).count()
+            if specialist_count > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{stylist.name} does not handle {service.category} services.",
+                )
 
         if audience is None and (service.audience or "unisex") != "unisex":
             audience = service.audience

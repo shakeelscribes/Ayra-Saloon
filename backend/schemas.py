@@ -38,6 +38,9 @@ class ServiceOut(BaseModel):
     category: str
     audience: str = "unisex"
     for_kids: bool = False
+    kid_gender: Optional[str] = None
+    popularity: int = 50
+    bookable: bool = True
     model_config = {"from_attributes": True}
 
 # ── Stylists ──────────────────────────────────────────────────────────────────
@@ -74,6 +77,10 @@ class BookingSlotOut(BaseModel):
     date: str
     time_slot: str
     duration_mins: int
+    # Embedded for multi-slot UIs (admin dashboard, appointments) so each slot
+    # row can render its own service/stylist without extra lookups.
+    service: Optional[ServiceOut] = None
+    stylist: Optional[StylistOut] = None
     model_config = {"from_attributes": True}
 
 class BookingOut(BaseModel):

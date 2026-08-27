@@ -26,7 +26,9 @@ async def update_me(
         current_user.name = update.name.strip()
     if update.phone is not None:
         current_user.phone = normalize_phone(update.phone) or None
-    if update.gender is not None:
-        current_user.gender = update.gender if update.gender in ("men", "women") else None
+    # Always run the gender assignment so the frontend can CLEAR the field by
+    # sending null (e.g. "Prefer not to say"). Without this, sending null is
+    # indistinguishable from "not provided" and the previous value sticks.
+    current_user.gender = update.gender if update.gender in ("men", "women") else None
     await current_user.save()
     return current_user

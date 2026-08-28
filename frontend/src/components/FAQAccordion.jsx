@@ -12,7 +12,9 @@ const EASE_OUT = [0.16, 1, 0.3, 1]
  * it up on unmount.
  */
 export default function FAQAccordion() {
-  const [openIndex, setOpenIndex] = useState(0)
+  // All items start closed — a pre-opened answer reads as leftover state.
+  // -1 = nothing open; the toggle below already uses it for "close all".
+  const [openIndex, setOpenIndex] = useState(-1)
   const schemaRef = useRef(null)
 
   // FAQPage structured data — helps Google surface these Q&As directly.

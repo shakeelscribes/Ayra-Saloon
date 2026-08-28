@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Scissors, Menu, X, User, LogOut, Calendar, LayoutDashboard } from 'lucide-react'
+import { Scissors, Menu, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Navbar() {
@@ -29,6 +29,13 @@ export default function Navbar() {
     { label: 'Book Now', href: '/book' },
   ]
 
+  // Shared link treatment — gold marks where you are (wayfinding), cream
+  // otherwise. Account links sit a touch dimmer so site nav reads first.
+  const linkCls = (href, base = 'text-cream/80') =>
+    `text-sm font-medium transition-colors duration-200 hover:text-gold-400 ${
+      location.pathname === href ? 'text-gold-400' : base
+    }`
+
   const navMaterial = scrolled
     ? 'bg-emerald-950/70 backdrop-blur-xl [backdrop-filter:blur(20px)_saturate(180%)] border-b border-gold-500/10 shadow-lg shadow-black/20'
     : 'bg-transparent border-b border-transparent'
@@ -46,40 +53,35 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-8">
+        {/* Desktop Nav — two groups (site / account) split by a hairline.
+            Account actions are text-quiet: the boxed Logout button was the
+            heaviest element in the bar despite being the least important. */}
+        <div className="hidden md:flex items-center gap-7">
           {navLinks.map((l) => (
-            <Link
-              key={l.label}
-              to={l.href}
-              className={`text-sm font-medium transition-colors duration-200 hover:text-gold-400 ${
-                location.pathname === l.href ? 'text-gold-400' : 'text-cream/80'
-              }`}
-            >
+            <Link key={l.label} to={l.href} className={linkCls(l.href)}>
               {l.label}
             </Link>
           ))}
+
+          <div className="h-5 w-px bg-cream/15" aria-hidden="true" />
+
           {user ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-5">
               {user.is_admin && (
-                <Link to="/admin" className="flex items-center gap-1.5 text-gold-400 text-sm hover:text-gold-300 transition-colors">
-                  <LayoutDashboard className="w-4 h-4" />
+                <Link to="/admin" className={linkCls('/admin', 'text-gold-400/90')}>
                   Dashboard
                 </Link>
               )}
-              <Link to="/my-appointments" className="flex items-center gap-1.5 text-cream/80 text-sm hover:text-gold-400 transition-colors">
-                <Calendar className="w-4 h-4" />
-                My Bookings
+              <Link to="/my-appointments" className={linkCls('/my-appointments', 'text-cream/70')}>
+                Bookings
               </Link>
-              <Link to="/profile" className="flex items-center gap-1.5 text-cream/80 text-sm hover:text-gold-400 transition-colors">
-                <User className="w-4 h-4" />
-                My Profile
+              <Link to="/profile" className={linkCls('/profile', 'text-cream/70')}>
+                Profile
               </Link>
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-2 btn-outline text-sm !px-5 !py-2"
+                className="text-sm font-medium text-cream/60 hover:text-gold-400 transition-colors duration-200"
               >
-                <LogOut className="w-4 h-4" />
                 Logout
               </button>
             </div>
@@ -114,14 +116,14 @@ export default function Navbar() {
             <>
               {user.is_admin && (
                 <Link to="/admin" onClick={() => setOpen(false)} className="text-gold-400 font-medium">
-                  Admin Dashboard
+                  Dashboard
                 </Link>
               )}
               <Link to="/my-appointments" onClick={() => setOpen(false)} className="text-cream/80 hover:text-gold-400">
-                My Bookings
+                Bookings
               </Link>
               <Link to="/profile" onClick={() => setOpen(false)} className="text-cream/80 hover:text-gold-400">
-                My Profile
+                Profile
               </Link>
               <button onClick={handleLogout} className="text-left text-red-400 hover:text-red-300 font-medium">
                 Logout

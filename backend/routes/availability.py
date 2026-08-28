@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from datetime import datetime, timedelta, timezone
 import models, schemas
 from beanie import PydanticObjectId
+from limiter import limiter
 
 router = APIRouter(prefix="/availability", tags=["Availability"])
 
@@ -15,7 +16,9 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 @router.get("/", response_model=schemas.AvailabilityResponse)
+@limiter.limit("60/minute")
 async def get_availability(
+    request: Request,
     stylist_id: PydanticObjectId = Query(..., description="Stylist ID"),
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
     slot_count: int = Query(1, ge=1, le=len(ALL_SLOTS),

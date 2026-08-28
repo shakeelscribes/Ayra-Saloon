@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from typing import List
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from beanie import PydanticObjectId
 import models, schemas
 from auth import get_current_user, get_current_admin
+from limiter import limiter
 from routes.availability import ALL_SLOTS
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
@@ -106,7 +107,9 @@ async def write_notification(booking: models.Booking, user: models.User, kind: s
 
 
 @router.post("/", response_model=schemas.BookingOut, status_code=201)
+@limiter.limit("5/minute")
 async def create_booking(
+    request: Request,
     booking_data: schemas.BookingCreate,
     current_user: models.User = Depends(get_current_user),
 ):

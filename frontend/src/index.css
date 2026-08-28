@@ -384,6 +384,14 @@
   @apply border-pink-400/40 bg-pink-400/10 text-pink-300;
 }
 
+/* Unisex tag on shared services — gold, quieter than the kid chips. */
+.service-row .audience-chip {
+  @apply text-[9px] uppercase tracking-widest font-semibold
+         px-1.5 py-0.5 rounded-full border
+         border-gold-500/40 bg-gold-500/10 text-gold-400;
+  flex-shrink: 0;
+}
+
 /* Stagger entrance for service rows — capped at 8 to keep it snappy. */
 @keyframes service-row-in {
   from { opacity: 0; transform: translateY(6px); }

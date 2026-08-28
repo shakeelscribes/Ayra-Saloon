@@ -132,6 +132,20 @@ function ServiceCard({ service, index }) {
         </span>
       </div>
 
+      {/* Audience + kids chips — who the service is for (locked decision #5). */}
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {service.audience && (
+          <span className="px-2 py-0.5 rounded-full border border-gold-500/25 text-[10px] uppercase tracking-[0.14em] text-cream/60 capitalize">
+            {service.audience}
+          </span>
+        )}
+        {service.for_kids && (
+          <span className="px-2 py-0.5 rounded-full border border-emerald-500/30 text-[10px] uppercase tracking-[0.14em] text-emerald-300">
+            Kids
+          </span>
+        )}
+      </div>
+
       <p className="mt-3 text-sm text-cream/75 leading-relaxed grow">
         {service.description}
       </p>

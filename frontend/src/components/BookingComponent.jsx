@@ -109,6 +109,12 @@ function ServiceRow({ svc, isSelected, onToggle, Icon }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="name">{svc.name}</span>
+          {/* Unisex tag — the only audience worth showing here, since the
+              list is already filtered to the chosen audience. Skipped on
+              kid rows (For boys / For girls sections label those). */}
+          {svc.audience === 'unisex' && !svc.kid_gender && (
+            <span className="audience-chip">Unisex</span>
+          )}
           {svc.kid_gender && (
             <span className={`gender-chip ${svc.kid_gender}`}>{svc.kid_gender}</span>
           )}

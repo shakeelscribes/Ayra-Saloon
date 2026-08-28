@@ -55,6 +55,7 @@ async def serialize_booking(booking: models.Booking) -> schemas.BookingOut:
         service=schemas.ServiceOut.model_validate(service) if service else None,
         stylist=schemas.StylistOut.model_validate(stylist) if stylist else None,
         customer_name=user.name if user else None,
+        customer_phone=user.phone if user else None,
         services=booking.services,
         slots=[
             schemas.BookingSlotOut(

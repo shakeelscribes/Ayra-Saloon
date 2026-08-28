@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, X } from 'lucide-react'
+import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, Phone, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../../api/client'
 
@@ -32,6 +32,16 @@ const kindConfig = {
   reschedule_confirmed: { label: 'Reschedule accepted', cls: 'text-emerald-400 bg-emerald-900/20 border-emerald-700' },
   booking_declined:     { label: 'Declined',            cls: 'text-red-400 bg-red-900/20 border-red-800' },
   booking_cancelled:    { label: 'Cancelled',           cls: 'text-red-400 bg-red-900/20 border-red-800' },
+}
+
+/* Click-to-call href — stored phones may be "98765 43210" or "+91…";
+   tel: needs bare digits with country code. */
+const telHref = (phone) => {
+  if (!phone) return null
+  const digits = phone.replace(/\D/g, '')
+  if (!digits) return null
+  if (digits.length === 10) return `tel:+91${digits}`
+  return `tel:+${digits}`
 }
 
 export default function AdminDashboard() {
@@ -290,6 +300,16 @@ export default function AdminDashboard() {
                     <div className="min-w-0 grow">
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</p>
+                        {b.customer_phone && telHref(b.customer_phone) && (
+                          <a
+                            href={telHref(b.customer_phone)}
+                            className="flex items-center gap-1 text-emerald-300 text-xs hover:text-gold-400 transition-colors"
+                            title="Call the customer"
+                          >
+                            <Phone className="w-3 h-3" />
+                            {b.customer_phone}
+                          </a>
+                        )}
                         <span className="text-emerald-300 text-xs">{b.date}</span>
                         <span className="text-gold-400 text-xs font-semibold">₹{bookingTotal(b).toLocaleString('en-IN')}</span>
                       </div>
@@ -305,6 +325,13 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openReschedule(b)}
+                        className="text-xs text-violet-300 hover:text-violet-200 transition-colors whitespace-nowrap"
+                        title="Propose a new slot — call the customer first to confirm"
+                      >
+                        Reschedule
+                      </button>
                       <button
                         onClick={() => handleApprove(b.id)}
                         className="btn-gold !px-4 !py-2 text-xs"
@@ -342,12 +369,21 @@ export default function AdminDashboard() {
                     <div className="min-w-0 grow">
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</p>
+                        {b.customer_phone && telHref(b.customer_phone) && (
+                          <a
+                            href={telHref(b.customer_phone)}
+                            className="flex items-center gap-1 text-emerald-300 text-xs hover:text-gold-400 transition-colors"
+                            title="Call the customer"
+                          >
+                            <Phone className="w-3 h-3" />
+                            {b.customer_phone}
+                          </a>
+                        )}
                         <span className="text-emerald-300 text-xs">{b.date}</span>
-                        {b.customer_phone && <span className="text-emerald-300 text-xs">{b.customer_phone}</span>}
                       </div>
                       <p className="text-violet-300 text-xs mt-2">
                         Proposed: <span className="text-cream font-medium">{b.proposed_date} at {fmtTime(b.proposed_time_slot)}</span>
-                        <span className="text-emerald-500"> (was {b.date} at {fmtTime(b.time_slot)})</span>
+                        <span className="text-emerald-500"> (was {b.date} at {fmtTime(firstSlotTime(b))})</span>
                       </p>
                       <div className="mt-2 space-y-1.5">
                         {bookingSlots(b).map(sl => (
@@ -530,7 +566,7 @@ export default function AdminDashboard() {
               <div>
                 <h3 className="font-display text-xl text-cream">Propose Reschedule</h3>
                 <p className="text-emerald-300 text-xs mt-1">
-                  {rescheduleTarget.customer_name || 'Customer'} · currently {rescheduleTarget.date} at {fmtTime(rescheduleTarget.time_slot)}
+                  {rescheduleTarget.customer_name || 'Customer'} · currently {rescheduleTarget.date} at {fmtTime(firstSlotTime(rescheduleTarget))}
                 </p>
               </div>
               <button onClick={() => setRescheduleTarget(null)} className="text-emerald-300 hover:text-cream transition-colors">

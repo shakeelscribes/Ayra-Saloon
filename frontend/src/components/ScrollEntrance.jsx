@@ -4,11 +4,19 @@ import { motion } from 'framer-motion'
 /**
  * Scroll entrance — replays on every downward approach, fully static on upward scroll.
  *
- * Rule: an element is hidden ONLY while it lies entirely below the viewport.
- * - Scrolling DOWN -> its top edge crosses the viewport bottom -> entrance plays. Every pass.
- * - Scrolling UP   -> sections above the viewport are always kept visible, so upward
- *   scrolling is completely static (no pops, no late images). Sections left behind
- *   silently re-arm once they fall below the viewport again.
+ * Rule: an element stays hidden until its FIRST on-screen encounter (whichever
+ * direction it enters from); after that it is hidden ONLY while it lies entirely
+ * below the viewport.
+ * - First encounter -> entrance plays as you watch, even if you arrive via a
+ *   mid-page reload / back-navigation that restores scroll past the section.
+ *   (Without this, the entrance would fire invisibly while the element sits
+ *   above the viewport, leaving it permanently static when you scroll up.)
+ * - Scrolling DOWN (after first view) -> its top edge crosses the viewport
+ *   bottom -> entrance replays. Every pass.
+ * - Scrolling UP (after first view) -> sections above the viewport are always
+ *   kept visible, so upward scrolling is completely static (no pops, no late
+ *   images). Sections left behind silently re-arm once they fall below the
+ *   viewport again.
  */
 export default function ScrollEntrance({
   children,
@@ -28,7 +36,8 @@ export default function ScrollEntrance({
   trigger = 1,
 }) {
   const ref = useRef(null)
-  const [belowViewport, setBelowViewport] = useState(true)
+  const enteredRef = useRef(false)
+  const [hidden, setHidden] = useState(true)
 
   useEffect(() => {
     const el = ref.current
@@ -36,7 +45,20 @@ export default function ScrollEntrance({
     let raf = 0
     const update = () => {
       raf = 0
-      setBelowViewport(el.getBoundingClientRect().top >= window.innerHeight * trigger)
+      const { top, bottom } = el.getBoundingClientRect()
+      const line = window.innerHeight * trigger
+      if (!enteredRef.current) {
+        // First encounter: fire the moment any part of the element is on
+        // screen — from below (top passes the trigger line) or from above
+        // (bottom peeks in during an upward scroll).
+        if (top < line && bottom > 0) {
+          enteredRef.current = true
+          setHidden(false)
+        }
+      } else if (top >= line) {
+        // Fell back below the viewport — re-arm for the next downward pass.
+        setHidden(true)
+      }
     }
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update)
@@ -58,7 +80,7 @@ export default function ScrollEntrance({
       ref={ref}
       className={className}
       initial={hiddenState}
-      animate={belowViewport ? hiddenState : visibleState}
+      animate={hidden ? hiddenState : visibleState}
       transition={{ duration, ease, delay }}
     >
       {children}

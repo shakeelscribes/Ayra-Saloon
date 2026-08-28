@@ -60,12 +60,16 @@ class Stylist(Document):
 
 
 class BookingSlot(Document):
-    """One 1-hour slot inside a booking. Exists ONLY while the booking is active
-    (pending / awaiting_reschedule / confirmed). Cancel, decline or reschedule
-    deletes the rows — that deletion IS the 'freeing' of the slot. Two UNIQUE
-    indexes make double-booking impossible at the DB level:
-    - (stylist_id, date, time_slot): a stylist can't be in two chairs
-    - (user_id, date, time_slot): a customer can't be in two chairs"""
+    """One service inside a booking, with its REAL back-to-back start time.
+    Exists ONLY while the booking is active (pending / awaiting_reschedule /
+    confirmed). Cancel, decline or reschedule deletes the rows — that deletion
+    IS the 'freeing' of the time. Services in a visit run back-to-back, so a
+    row's interval is [time_slot, time_slot + duration_mins) — e.g. a 45-min
+    haircut in a 10:00 visit starts at "10:00", the next service at "10:45".
+    Overlap conflicts are checked as minute intervals in the routes; the UNIQUE
+    indexes below remain as a same-start-minute safety net:
+    - (stylist_id, date, time_slot): a stylist can't start two services at once
+    - (user_id, date, time_slot): a customer can't start two services at once"""
 
     booking_id: PydanticObjectId
     user_id: PydanticObjectId

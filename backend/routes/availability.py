@@ -14,6 +14,34 @@ ALL_SLOTS = [f"{h:02d}:00" for h in range(10, 21)]
 # 00:00–05:30 IST window judges "today" by the wrong calendar day.
 _IST = timezone(timedelta(hours=5, minutes=30))
 
+# ── Duration-based block sizing ──────────────────────────────────────────────
+# A visit books whole hourly slots, but stylists are experienced: the first
+# 30 minutes of overflow past each hour boundary is absorbed — no extra slot.
+#   45 min → 1 slot · 90 min → 1 slot · 91 min → 2 slots
+#  140 min → 2 slots · 150 min → 2 slots · 151 min → 3 slots
+GRACE_MINS = 30
+
+
+def hm_to_mins(hm: str) -> int:
+    h, m = hm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def mins_to_hm(mins: int) -> str:
+    return f"{mins // 60:02d}:{mins % 60:02d}"
+
+
+def slots_needed(total_mins: int) -> int:
+    """Smallest N where total_mins <= N*60 + GRACE_MINS (never below 1)."""
+    if total_mins <= 0:
+        return 1
+    return max(1, -(-(total_mins - GRACE_MINS) // 60))
+
+
+def intervals_overlap(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
+    """Touching intervals (10:00–10:45 vs 10:45–11:10) do NOT overlap."""
+    return a_start < b_end and b_start < a_end
+
 
 @router.get("/", response_model=schemas.AvailabilityResponse)
 @limiter.limit("60/minute")
@@ -21,38 +49,29 @@ async def get_availability(
     request: Request,
     stylist_id: PydanticObjectId = Query(..., description="Stylist ID"),
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    slot_count: int = Query(1, ge=1, le=len(ALL_SLOTS),
-                            description="Consecutive 1-hour slots needed"),
+    exclude_booking_id: PydanticObjectId = Query(
+        None,
+        description="Booking whose own rows count as free — reschedule preview.",
+    ),
 ):
     # Delete-on-free model: an existing BookingSlot row for this stylist/date
-    # IS a booked slot (rows only exist for active bookings).
-    slots = await models.BookingSlot.find(
-        models.BookingSlot.stylist_id == stylist_id,
-        models.BookingSlot.date == date,
-    ).to_list()
+    # IS a booked interval [time_slot, time_slot + duration_mins). Rows carry
+    # REAL start times (services run back-to-back), so a stylist's busy map is
+    # a set of minute intervals, not whole hours.
+    query = [models.BookingSlot.stylist_id == stylist_id,
+             models.BookingSlot.date == date]
+    if exclude_booking_id:
+        query.append(models.BookingSlot.booking_id != exclude_booking_id)
+    rows = await models.BookingSlot.find(*query).to_list()
 
-    booked_slots = [s.time_slot for s in slots]
-    booked_set = set(booked_slots)
-    available_slots = [s for s in ALL_SLOTS if s not in booked_set]
-
-    # Slots that already passed today are not bookable — hide them.
-    now_ist = datetime.now(_IST)
-    if date == now_ist.date().isoformat():
-        now_hm = now_ist.strftime("%H:%M")
-        available_slots = [s for s in available_slots if s > now_hm]
-
-    # Starts where `slot_count` consecutive hours are all free — the multi-slot
-    # booking flow uses this to offer only genuinely bookable start times.
-    consecutive_starts = []
-    for i in range(len(ALL_SLOTS) - slot_count + 1):
-        window = ALL_SLOTS[i:i + slot_count]
-        if all(s in available_slots for s in window):
-            consecutive_starts.append(window[0])
-
-    return schemas.AvailabilityResponse(
-        stylist_id=stylist_id,
-        date=date,
-        available_slots=available_slots,
-        booked_slots=booked_slots,
-        consecutive_starts=consecutive_starts,
+    busy = sorted(
+        (
+            schemas.BusyInterval(
+                start=r.time_slot,
+                end=mins_to_hm(hm_to_mins(r.time_slot) + (r.duration_mins or 60)),
+            )
+            for r in rows
+        ),
+        key=lambda b: b.start,
     )
+    return schemas.AvailabilityResponse(stylist_id=stylist_id, date=date, busy=busy)

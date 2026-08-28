@@ -106,12 +106,14 @@ class BookingOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 # ── Availability ──────────────────────────────────────────────────────────────
+class BusyInterval(BaseModel):
+    start: str             # "HH:MM"
+    end: str               # "HH:MM" — start + service duration
+
 class AvailabilityResponse(BaseModel):
     stylist_id: PydanticObjectId
     date: str
-    available_slots: List[str]
-    booked_slots: List[str]
-    consecutive_starts: List[str] = []   # starts where `slot_count` consecutive hours are free
+    busy: List[BusyInterval] = []   # booked windows; everything else is free
 
 class RescheduleProposal(BaseModel):
     date: str              # "YYYY-MM-DD"

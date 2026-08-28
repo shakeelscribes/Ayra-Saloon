@@ -6,7 +6,8 @@ from beanie import PydanticObjectId
 import models, schemas
 from auth import get_current_user, get_current_admin
 from limiter import limiter
-from routes.availability import ALL_SLOTS
+from routes.availability import (ALL_SLOTS, hm_to_mins, mins_to_hm,
+                                 slots_needed, intervals_overlap)
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
@@ -123,34 +124,23 @@ async def create_booking(
     else:
         raise HTTPException(status_code=422, detail="Provide items[] or service_id + stylist_id.")
 
-    n = len(items)
-    if n > len(ALL_SLOTS):
-        raise HTTPException(status_code=400, detail="Too many services for one day.")
     if booking_data.time_slot not in ALL_SLOTS:
         raise HTTPException(status_code=400, detail="Invalid time slot.")
-
-    start_idx = ALL_SLOTS.index(booking_data.time_slot)
-    if start_idx + n > len(ALL_SLOTS):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Not enough time before closing for {n} service(s). Pick an earlier start.",
-        )
 
     # ── Freshness guard (IST): no bookings in the past ────────────────────────
     now_ist = _ist_now()
     today_ist = now_ist.date().isoformat()
     if booking_data.date < today_ist:
         raise HTTPException(status_code=400, detail="That date has already passed.")
-    if booking_data.date == today_ist:
-        now_hm = now_ist.strftime("%H:%M")
-        if any(t <= now_hm for t in ALL_SLOTS[start_idx:start_idx + n]):
-            raise HTTPException(
-                status_code=400,
-                detail="That time has already passed today. Pick a later slot.",
-            )
+    if booking_data.date == today_ist and booking_data.time_slot <= now_ist.strftime("%H:%M"):
+        raise HTTPException(
+            status_code=400,
+            detail="That time has already passed today. Pick a later slot.",
+        )
 
-    # ── Validate + resolve every item (service, stylist, its own slot time) ───
+    # ── Validate + resolve every item (service, stylist) ──────────────────────
     resolved = []
+    total_mins = 0
     audience = None
     seen_services = set()
     for i, item in enumerate(items):
@@ -190,30 +180,59 @@ async def create_booking(
                 detail=f"'{service.name}' doesn't match the other selected services.",
             )
 
-        resolved.append((service, stylist, ALL_SLOTS[start_idx + i]))
+        total_mins += service.duration_mins or 60
+        resolved.append((service, stylist))
 
-    # ── Conflict checks: stylist + customer, per slot ─────────────────────────
-    for service, stylist, slot_time in resolved:
-        stylist_conflict = await models.BookingSlot.find_one(
-            models.BookingSlot.stylist_id == stylist.id,
-            models.BookingSlot.date == booking_data.date,
-            models.BookingSlot.time_slot == slot_time,
+    # ── Duration-based block sizing ───────────────────────────────────────────
+    # Whole hourly slots, 30-min grace past each hour boundary (stylists are
+    # experienced): 140 min → 2 slots, 150 → 2, 151 → 3.
+    n_slots = slots_needed(total_mins)
+    start_idx = ALL_SLOTS.index(booking_data.time_slot)
+    if start_idx + n_slots > len(ALL_SLOTS):
+        raise HTTPException(
+            status_code=400,
+            detail=(f"This visit takes about {total_mins} min ({n_slots} hour(s)) — "
+                    f"not enough time before closing. Pick an earlier start."),
         )
-        if stylist_conflict:
+
+    # ── Real back-to-back windows: each service starts where the last ends ────
+    cursor = hm_to_mins(booking_data.time_slot)
+    windows = []
+    for service, stylist in resolved:
+        dur = service.duration_mins or 60
+        windows.append((service, stylist, cursor, cursor + dur))
+        cursor += dur
+
+    # ── Conflict checks (interval overlap): stylist per service window,
+    #    customer for the whole visit ─────────────────────────────────────────
+    day_rows = await models.BookingSlot.find(
+        models.BookingSlot.date == booking_data.date
+    ).to_list()
+    visit_start = hm_to_mins(booking_data.time_slot)
+    visit_end = visit_start + total_mins
+    for row in day_rows:
+        row_start = hm_to_mins(row.time_slot)
+        row_end = row_start + (row.duration_mins or 60)
+        if not intervals_overlap(visit_start, visit_end, row_start, row_end):
+            continue
+        if row.user_id == current_user.id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"{stylist.name} is already booked at {slot_time} on {booking_data.date}.",
+                detail=(f"You already have a booking overlapping this time "
+                        f"({mins_to_hm(row_start)}–{mins_to_hm(row_end)}) on {booking_data.date}."),
             )
-        own_conflict = await models.BookingSlot.find_one(
-            models.BookingSlot.user_id == current_user.id,
-            models.BookingSlot.date == booking_data.date,
-            models.BookingSlot.time_slot == slot_time,
-        )
-        if own_conflict:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"You already have a booking at {slot_time}. Pick a different start time.",
-            )
+    for service, stylist, ws, we in windows:
+        for row in day_rows:
+            if row.stylist_id != stylist.id:
+                continue
+            row_start = hm_to_mins(row.time_slot)
+            row_end = row_start + (row.duration_mins or 60)
+            if intervals_overlap(ws, we, row_start, row_end):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(f"{stylist.name} is already booked "
+                            f"{mins_to_hm(row_start)}–{mins_to_hm(row_end)} on {booking_data.date}."),
+                )
 
     # ── Create booking (soft-hold) + slot rows ────────────────────────────────
     primary_stylist = resolved[0][1]
@@ -221,7 +240,7 @@ async def create_booking(
         user_id=current_user.id,
         stylist_id=primary_stylist.id,
         audience=audience or "unisex",
-        services=[service.id for service, _, _ in resolved],
+        services=[service.id for service, _ in resolved],
         date=booking_data.date,
         time_slot=booking_data.time_slot,   # snapshot — survives slot-row deletion
         notes=booking_data.notes,
@@ -236,7 +255,7 @@ async def create_booking(
     )
     await booking.insert()
 
-    for i, (service, stylist, slot_time) in enumerate(resolved):
+    for i, (service, stylist, ws, we) in enumerate(windows):
         await models.BookingSlot(
             booking_id=booking.id,
             user_id=current_user.id,
@@ -244,13 +263,12 @@ async def create_booking(
             stylist_id=stylist.id,
             sequence=i,
             date=booking_data.date,
-            time_slot=slot_time,
-            duration_mins=service.duration_mins,
+            time_slot=mins_to_hm(ws),           # REAL start — services run back-to-back
+            duration_mins=service.duration_mins or 60,
         ).insert()
 
-    service_names = " + ".join(s.name for s, _, _ in resolved)
-    stylist_names = " + ".join(dict.fromkeys(s.name for _, s, _ in resolved))
-    slot_range = f"{booking_data.time_slot}–{ALL_SLOTS[start_idx + n - 1] + ' (end)'}" if n > 1 else booking_data.time_slot
+    service_names = " + ".join(s.name for s, _, _, _ in windows)
+    stylist_names = " + ".join(dict.fromkeys(s.name for _, s, _, _ in windows))
     await write_notification(
         booking, current_user, "booking_pending",
         f"Hi {current_user.name}! Your request ({service_names}) with {stylist_names} "
@@ -375,77 +393,96 @@ async def propose_reschedule(
     if booking.status not in (models.BookingStatus.pending, models.BookingStatus.confirmed):
         raise HTTPException(status_code=409, detail=f"Cannot reschedule a {from_status} booking.")
 
-    n = len(booking.services)
     if body.time_slot not in ALL_SLOTS:
         raise HTTPException(status_code=400, detail="Invalid time slot.")
-    start_idx = ALL_SLOTS.index(body.time_slot)
-    if start_idx + n > len(ALL_SLOTS):
-        raise HTTPException(status_code=400, detail="Not enough time before closing.")
-
-    # ── Freshness guard (IST): never propose a slot in the past ───────────────
-    now_ist = _ist_now()
-    today_ist = now_ist.date().isoformat()
-    if body.date < today_ist:
-        raise HTTPException(status_code=400, detail="That date has already passed.")
-    if body.date == today_ist:
-        now_hm = now_ist.strftime("%H:%M")
-        if any(t <= now_hm for t in ALL_SLOTS[start_idx:start_idx + n]):
-            raise HTTPException(
-                status_code=400,
-                detail="That time has already passed today. Pick a later slot.",
-            )
 
     # Keep each slot's own service → stylist mapping and duration; only the
     # date/start moves. (Cascade bookings can involve several stylists.)
     current_rows = await models.BookingSlot.find(
         models.BookingSlot.booking_id == booking.id
     ).sort(models.BookingSlot.sequence).to_list()
-    if len(current_rows) != n:
+    if len(current_rows) != len(booking.services):
         raise HTTPException(
             status_code=409,
             detail="Booking slots are out of sync with the booking. Contact support.",
         )
 
-    # Conflict checks per slot's OWN stylist + the customer's other bookings,
-    # excluding this booking's own rows (they all get replaced below).
-    own_keys = {(s.date, s.time_slot) for s in current_rows}
-    for i, row in enumerate(current_rows):
-        t = ALL_SLOTS[start_idx + i]
-        if (body.date, t) in own_keys:
-            continue
-        stylist_conflict = await models.BookingSlot.find_one(
-            models.BookingSlot.stylist_id == row.stylist_id,
-            models.BookingSlot.date == body.date,
-            models.BookingSlot.time_slot == t,
+    # ── Duration-based block sizing (same rule as creation) ───────────────────
+    total_mins = sum(r.duration_mins or 60 for r in current_rows)
+    n_slots = slots_needed(total_mins)
+    start_idx = ALL_SLOTS.index(body.time_slot)
+    if start_idx + n_slots > len(ALL_SLOTS):
+        raise HTTPException(
+            status_code=400,
+            detail=(f"This visit takes about {total_mins} min ({n_slots} hour(s)) — "
+                    f"not enough time before closing. Pick an earlier start."),
         )
-        if stylist_conflict:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{t} on {body.date} is no longer available. Pick a different time.",
-            )
-        customer_conflict = await models.BookingSlot.find_one(
-            models.BookingSlot.user_id == booking.user_id,
-            models.BookingSlot.date == body.date,
-            models.BookingSlot.time_slot == t,
-        )
-        if customer_conflict and customer_conflict.booking_id != booking.id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"The customer already has another booking at {t} on {body.date}.",
-            )
 
-    # Move the whole block: old rows out, new rows in (same stylists/durations)
+    # ── Freshness guard (IST): never propose a slot in the past ───────────────
+    now_ist = _ist_now()
+    today_ist = now_ist.date().isoformat()
+    if body.date < today_ist:
+        raise HTTPException(status_code=400, detail="That date has already passed.")
+    if body.date == today_ist and body.time_slot <= now_ist.strftime("%H:%M"):
+        raise HTTPException(
+            status_code=400,
+            detail="That time has already passed today. Pick a later slot.",
+        )
+
+    # ── Real back-to-back windows from the proposed start ─────────────────────
+    cursor = hm_to_mins(body.time_slot)
+    windows = []
+    for row in current_rows:
+        dur = row.duration_mins or 60
+        windows.append((row, cursor, cursor + dur))
+        cursor += dur
+
+    # Conflict checks per window's OWN stylist + the customer's other bookings,
+    # excluding this booking's own rows (they all get replaced below).
+    day_rows = await models.BookingSlot.find(
+        models.BookingSlot.date == body.date,
+        models.BookingSlot.booking_id != booking.id,
+    ).to_list()
+    visit_start = hm_to_mins(body.time_slot)
+    visit_end = visit_start + total_mins
+    for row in day_rows:
+        row_start = hm_to_mins(row.time_slot)
+        row_end = row_start + (row.duration_mins or 60)
+        if (intervals_overlap(visit_start, visit_end, row_start, row_end)
+                and row.user_id == booking.user_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(f"The customer already has another booking overlapping this time "
+                        f"({mins_to_hm(row_start)}–{mins_to_hm(row_end)}) on {body.date}."),
+            )
+    for row_obj, ws, we in windows:
+        for row in day_rows:
+            if row.stylist_id != row_obj.stylist_id:
+                continue
+            row_start = hm_to_mins(row.time_slot)
+            row_end = row_start + (row.duration_mins or 60)
+            if intervals_overlap(ws, we, row_start, row_end):
+                stylist = await models.Stylist.get(row_obj.stylist_id)
+                name = stylist.name if stylist else "The stylist"
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"{name} is already booked "
+                            f"{mins_to_hm(row_start)}–{mins_to_hm(row_end)} on {body.date}."),
+                )
+
+    # Move the whole block: old rows out, new rows in (same stylists/durations,
+    # real back-to-back start times)
     await models.BookingSlot.find(models.BookingSlot.booking_id == booking.id).delete()
-    for i, row in enumerate(current_rows):
+    for i, (row_obj, ws, we) in enumerate(windows):
         await models.BookingSlot(
             booking_id=booking.id,
             user_id=booking.user_id,
-            service_id=row.service_id,
-            stylist_id=row.stylist_id,
+            service_id=row_obj.service_id,
+            stylist_id=row_obj.stylist_id,
             sequence=i,
             date=body.date,
-            time_slot=ALL_SLOTS[start_idx + i],
-            duration_mins=row.duration_mins,
+            time_slot=mins_to_hm(ws),
+            duration_mins=row_obj.duration_mins,
         ).insert()
 
     booking.proposed_date = body.date

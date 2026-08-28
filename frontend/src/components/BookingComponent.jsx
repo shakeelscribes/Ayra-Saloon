@@ -49,6 +49,24 @@ const fmtTime = (t) => {
   return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
 }
 
+/* ── Duration-based slot math (mirrors backend/routes/availability.py) ──
+   Services run back-to-back from the chosen hour; the visit books whole
+   hourly slots, but the first 30 min of overflow past each hour boundary
+   is absorbed — 140 min → 2 slots, 150 → 2, 151 → 3. */
+const GRACE_MINS = 30
+const toMins = (hm) => { const [h, m] = hm.split(':').map(Number); return h * 60 + m }
+const minsToHm = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+const totalDuration = (list) => list.reduce((s, x) => s + (x.duration_mins || 60), 0)
+const slotsNeeded = (mins) => Math.max(1, Math.ceil((mins - GRACE_MINS) / 60))
+const isFree = (busy, startMin, endMin) =>
+  !(busy || []).some((b) => startMin < toMins(b.end) && toMins(b.start) < endMin)
+const fmtDur = (mins) => {
+  const h = Math.floor(mins / 60), m = mins % 60
+  if (!m) return `${h} hr${h !== 1 ? 's' : ''}`
+  if (!h) return `${m} min`
+  return `${h} hr${h !== 1 ? 's' : ''} ${m} min`
+}
+
 /* Haptic feedback — Apple principle: causality + harmony (fire on the same frame
    as the visual commit). Reserve strength for meaningful commits. */
 const tap = (ms = 5) => {
@@ -473,7 +491,7 @@ export default function BookingComponent() {
 
   const [date, setDate] = useState(istDate(1))
   const [startTime, setStartTime] = useState(null)
-  const [availMap, setAvailMap] = useState({})    // stylistId -> Set(free times)
+  const [availMap, setAvailMap] = useState({})    // stylistId -> busy intervals [{start, end}]
   const [loadingSlots, setLoadingSlots] = useState(false)
 
   const [notes, setNotes] = useState('')
@@ -575,8 +593,8 @@ export default function BookingComponent() {
       involvedStylistIds.map((id) =>
         client.get(`/availability/?stylist_id=${id}&date=${date}`, {
           signal: controller.signal,
-        }).then((r) => [id, new Set(r.data.available_slots)])
-          .catch(() => [id, new Set()])
+        }).then((r) => [id, r.data.busy || []])
+          .catch(() => [id, []])
       )
     ).then((pairs) => {
       if (controller.signal.aborted) return
@@ -585,14 +603,19 @@ export default function BookingComponent() {
     return () => controller.abort()
   }, [date, involvedStylistIds.join('|')])
 
-  /* ── Cascade resolution: can ALL services fit starting at startIdx? ──
-     Shared by the Confirm gate and the Schedule grid (viableStarts) so
-     the two can never drift apart. */
+  /* ── Cascade resolution: can ALL services fit back-to-back from startIdx? ──
+     Each service starts where the previous one ends (real durations); its
+     stylist must be interval-free for that exact window. Shared by the
+     Confirm gate and the Schedule grid (viableStarts) so the two can never
+     drift apart. */
   const resolveCascade = (startIdx) => {
     const plan = []
+    let cursor = toMins(ALL_SLOTS[startIdx])
     for (let i = 0; i < picked.length; i++) {
       const svc = picked[i]
-      const slotTime = ALL_SLOTS[startIdx + i]
+      const dur = svc.duration_mins || 60
+      const sMin = cursor
+      const eMin = cursor + dur
       const pick = picks[svc.id]
       // When no stylist specialises in this category, ANY stylist is
       // acceptable — mirrors the Stylists step's show-all fallback and the
@@ -604,54 +627,60 @@ export default function BookingComponent() {
         stylist =
           st &&
           ((st.categories || []).includes(svc.category) || !hasSpecialist) &&
-          (availMap[st.id]?.has(slotTime) ?? false)
+          isFree(availMap[st.id], sMin, eMin)
             ? st
             : null
       } else {
-        // "No preference": deal the hour to a random stylist who is actually
-        // free at slotTime — never the same name by list order. If every
+        // "No preference": deal the window to a random stylist who is actually
+        // free for it — never the same name by list order. If every
         // specialist is busy the pool is empty and the start is blocked.
         const freeSpecialists = stylists.filter(
           (s) =>
             (s.categories || []).includes(svc.category) &&
-            (availMap[s.id]?.has(slotTime) ?? false)
+            isFree(availMap[s.id], sMin, eMin)
         )
         const pool = freeSpecialists.length > 0
           ? freeSpecialists
           : (!hasSpecialist
-            ? stylists.filter((s) => (availMap[s.id]?.has(slotTime) ?? false))
+            ? stylists.filter((s) => isFree(availMap[s.id], sMin, eMin))
             : [])
         stylist = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null
       }
-      if (!stylist) return { plan: [], blockedAt: i, conflictSlot: slotTime }
-      plan.push({ service: svc, stylist, slotTime })
+      if (!stylist) return { plan: [], blockedAt: i }
+      plan.push({ service: svc, stylist, startMin: sMin, endMin: eMin })
+      cursor = eMin
     }
-    return { plan, blockedAt: null, conflictSlot: null }
+    return { plan, blockedAt: null }
   }
+
+  /* The visit reserves whole hours: real duration rounded up with the
+     30-min grace. Closing fit and the grid use this, not the service count. */
+  const visitMins = useMemo(() => totalDuration(picked), [picked])
+  const blockSlots = useMemo(() => slotsNeeded(visitMins), [visitMins])
 
   const resolution = useMemo(() => {
     if (!startTime || picked.length === 0) return null
     const startIdx = ALL_SLOTS.indexOf(startTime)
-    if (startIdx < 0 || startIdx + picked.length > ALL_SLOTS.length) return null
+    if (startIdx < 0 || startIdx + blockSlots > ALL_SLOTS.length) return null
     return resolveCascade(startIdx)
-  }, [startTime, picked, picks, stylists, availMap])
+  }, [startTime, picked, picks, stylists, availMap, blockSlots])
 
   /* Start times where the whole cascade resolves against live availability —
      lets the Schedule grid mark taken hours before the user taps them. */
   const viableStarts = useMemo(() => {
     const viable = new Set()
     if (picked.length === 0) return viable
-    for (let s = 0; s + picked.length <= ALL_SLOTS.length; s++) {
+    for (let s = 0; s + blockSlots <= ALL_SLOTS.length; s++) {
       if (resolveCascade(s).blockedAt === null) viable.add(ALL_SLOTS[s])
     }
     return viable
-  }, [picked, picks, stylists, availMap])
+  }, [picked, picks, stylists, availMap, blockSlots])
 
   /* Availability counts as loaded once every involved stylist has a fetched
-     free-slot set — until then the grid stays neutral instead of flashing
+     busy map — until then the grid stays neutral instead of flashing
      everything as taken. */
   const availLoaded = !loadingSlots && picked.length > 0 && involvedStylistIds.every((id) => availMap[id])
-  const maxStarts = Math.max(0, ALL_SLOTS.length - picked.length + 1)
+  const maxStarts = Math.max(0, ALL_SLOTS.length - blockSlots + 1)
   const takenStarts = availLoaded ? ALL_SLOTS.slice(0, maxStarts).filter((t) => !viableStarts.has(t)).length : 0
 
   /* A stale selection must never masquerade as valid: if the chosen start
@@ -690,7 +719,7 @@ export default function BookingComponent() {
   /* ── Success screen ── */
   if (success) {
     const planText = resolution?.plan
-      ?.map(({ service, stylist, slotTime }, i) => `${i + 1}. ${service.name} with ${stylist.name} at ${fmtTime(slotTime)}`)
+      ?.map(({ service, stylist, startMin }, i) => `${i + 1}. ${service.name} with ${stylist.name} at ${fmtTime(minsToHm(startMin))}`)
       .join('\n')
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
@@ -1013,7 +1042,7 @@ export default function BookingComponent() {
                 <div className="space-y-7">
                   <h2 className="font-display text-3xl text-cream text-center mb-2">Pick Date & Start Time</h2>
                   <p className="text-emerald-300 text-center text-sm -mt-4">
-                    Your {picked.length} service{picked.length > 1 ? 's run back-to-back' : ' runs'} — about {picked.length} hour{picked.length > 1 ? 's' : ''} total
+                    {picked.length} service{picked.length > 1 ? 's' : ''} back-to-back — about {fmtDur(visitMins)} total, reserves {blockSlots} hour{blockSlots !== 1 ? 's' : ''}
                   </p>
 
                   <div>
@@ -1039,7 +1068,7 @@ export default function BookingComponent() {
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                         {ALL_SLOTS.map((t) => {
                           const startIdx = ALL_SLOTS.indexOf(t)
-                          const fits = startIdx + picked.length <= ALL_SLOTS.length
+                          const fits = startIdx + blockSlots <= ALL_SLOTS.length
                           const taken = fits && availLoaded && !viableStarts.has(t)
                           const disabled = !fits || taken
                           return (
@@ -1085,10 +1114,12 @@ export default function BookingComponent() {
                   {resolution?.plan?.length > 0 && (
                     <div className="rounded-2xl border border-gold-500/30 bg-emerald-900/40 p-5 space-y-2.5">
                       <p className="text-gold-400 text-xs uppercase tracking-widest mb-1">Your visit</p>
-                      {resolution.plan.map(({ service, stylist, slotTime }, i) => (
+                      {resolution.plan.map(({ service, stylist, startMin, endMin }, i) => (
                         <div key={service.id} className="flex items-center justify-between text-sm">
                           <span className="text-cream">{i + 1}. {service.name}</span>
-                          <span className="text-emerald-300">{stylist.name} · {fmtTime(slotTime)}</span>
+                          <span className="text-emerald-300">
+                            {stylist.name} · {fmtTime(minsToHm(startMin))}–{fmtTime(minsToHm(endMin))}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -1122,7 +1153,9 @@ export default function BookingComponent() {
                     </div>
                     <div className="flex justify-between items-center border-b border-emerald-800 pb-3 last:border-0">
                       <span className="text-emerald-300 text-sm">Start & Duration</span>
-                      <span className="text-cream font-medium text-sm">{fmtTime(startTime)} · {picked.length} hr{picked.length > 1 ? 's' : ''}</span>
+                      <span className="text-cream font-medium text-sm">
+                        {fmtTime(startTime)} · {fmtDur(visitMins)} ({blockSlots} hr{blockSlots !== 1 ? 's' : ''} reserved)
+                      </span>
                     </div>
                   </div>
                   <div className="mb-6">

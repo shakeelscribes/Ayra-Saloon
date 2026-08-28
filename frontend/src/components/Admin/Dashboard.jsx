@@ -168,6 +168,13 @@ export default function AdminDashboard() {
       ? b.slots.reduce((s, sl) => s + (sl.service?.price || 0), 0)
       : (b.service?.price || 0)
 
+  /* ── Duration-based slot math (mirrors backend/routes/availability.py) ── */
+  const toMins = (hm) => { const [h, m] = hm.split(':').map(Number); return h * 60 + m }
+  const isFree = (busy, startMin, endMin) =>
+    !(busy || []).some((b) => startMin < toMins(b.end) && toMins(b.start) < endMin)
+  const slotsNeededFor = (rows) =>
+    Math.max(1, Math.ceil((rows.reduce((s, r) => s + (r.duration_mins || 60), 0) - 30) / 60))
+
   // Group confirmed bookings by first-slot time
   const timeline = [...confirmed].sort((a, b) => firstSlotTime(a).localeCompare(firstSlotTime(b)))
 
@@ -179,9 +186,9 @@ export default function AdminDashboard() {
     [rescheduleTarget]
   )
 
-  // Availability per involved stylist for the proposed date. Own rows on the
-  // same date are moving away, so they count as free (backend excludes them
-  // from conflict checks the same way).
+  // Availability per involved stylist for the proposed date. This booking's
+  // own rows are excluded server-side via exclude_booking_id — they're moving
+  // away, so they must not block their own reschedule.
   useEffect(() => {
     if (!rescheduleTarget || !propDate) return
     const controller = new AbortController()
@@ -189,17 +196,12 @@ export default function AdminDashboard() {
     setAvail({})
     setPropStart(null)
     Promise.all(propStylistIds.map(id =>
-      client.get(`/availability/?stylist_id=${id}&date=${propDate}`, { signal: controller.signal })
-        .then(r => {
-          const free = new Set(r.data.available_slots)
-          if (propDate === rescheduleTarget.date) {
-            propRows.forEach(sl => {
-              if (String(sl.stylist_id) === id) free.add(sl.time_slot)
-            })
-          }
-          return [id, free]
-        })
-        .catch(() => [id, new Set()])
+      client.get(
+        `/availability/?stylist_id=${id}&date=${propDate}&exclude_booking_id=${rescheduleTarget.id}`,
+        { signal: controller.signal }
+      )
+        .then(r => [id, r.data.busy || []])
+        .catch(() => [id, []])
     )).then(pairs => {
       if (!controller.signal.aborted) setAvail(Object.fromEntries(pairs))
     }).finally(() => {
@@ -208,20 +210,31 @@ export default function AdminDashboard() {
     return () => controller.abort()
   }, [rescheduleTarget, propDate])
 
-  // A start works when every service's own stylist is free at its cascaded time
+  // The visit reserves whole hours: real durations rounded up with the
+  // 30-min grace — same rule as creation and the backend.
+  const propBlockSlots = useMemo(
+    () => slotsNeededFor(propRows),
+    [rescheduleTarget]
+  )
+
+  // A start works when the whole back-to-back block fits before closing and
+  // every service's own stylist is interval-free for its real window.
   const viableStarts = useMemo(() => {
     const viable = new Set()
     if (!rescheduleTarget || !propRows.length) return viable
-    for (let s = 0; s + propRows.length <= ALL_SLOTS.length; s++) {
+    for (let s = 0; s + propBlockSlots <= ALL_SLOTS.length; s++) {
+      let cursor = toMins(ALL_SLOTS[s])
       let ok = true
       for (let i = 0; i < propRows.length; i++) {
-        const free = avail[String(propRows[i].stylist_id)]
-        if (!free || !free.has(ALL_SLOTS[s + i])) { ok = false; break }
+        const dur = propRows[i].duration_mins || 60
+        const busy = avail[String(propRows[i].stylist_id)]
+        if (!busy || !isFree(busy, cursor, cursor + dur)) { ok = false; break }
+        cursor += dur
       }
       if (ok) viable.add(ALL_SLOTS[s])
     }
     return viable
-  }, [rescheduleTarget, avail])
+  }, [rescheduleTarget, avail, propBlockSlots])
 
   const availLoaded = !availLoading && propStylistIds.length > 0 &&
     propStylistIds.every(id => avail[id])
@@ -468,31 +481,34 @@ export default function AdminDashboard() {
             <div className="space-y-3">
               {Object.entries(
                 confirmed.reduce((acc, b) => {
-                  // Count slots per stylist — a 2-service booking occupies a
-                  // stylist (or two) for 2 hours, not 1.
+                  // Minutes per stylist — a stylist is busy for their
+                  // services' real durations, not a flat hour per row.
                   const rows = bookingSlots(b).length
                     ? bookingSlots(b)
-                    : (b.stylist ? [{ stylist: b.stylist }] : [])
+                    : (b.stylist ? [{ stylist: b.stylist, duration_mins: 60 }] : [])
                   rows.forEach(sl => {
                     const name = sl.stylist?.name
-                    if (name) acc[name] = (acc[name] || 0) + 1
+                    if (name) acc[name] = (acc[name] || 0) + (sl.duration_mins || 60)
                   })
                   return acc
                 }, {})
-              ).map(([name, count]) => (
-                <div key={name} className="glass-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-cream text-sm font-medium">{name}</span>
-                    <span className="text-gold-400 text-sm font-semibold">{count} slot{count !== 1 ? 's' : ''}</span>
+              ).map(([name, mins]) => {
+                const hrs = mins / 60
+                return (
+                  <div key={name} className="glass-card p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-cream text-sm font-medium">{name}</span>
+                      <span className="text-gold-400 text-sm font-semibold">{hrs % 1 ? hrs.toFixed(1) : hrs} h booked</span>
+                    </div>
+                    <div className="w-full bg-emerald-900 rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, (hrs / 11) * 100)}%`, background: 'linear-gradient(90deg, #c9a84c, #f0d080)' }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-emerald-900 rounded-full h-1.5">
-                    <div
-                      className="h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, (count / 8) * 100)}%`, background: 'linear-gradient(90deg, #c9a84c, #f0d080)' }}
-                    />
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               {confirmed.length === 0 && (
                 <div className="glass-card p-6 text-center text-emerald-300 text-sm">No data for this day.</div>
               )}
@@ -567,6 +583,7 @@ export default function AdminDashboard() {
                 <h3 className="font-display text-xl text-cream">Propose Reschedule</h3>
                 <p className="text-emerald-300 text-xs mt-1">
                   {rescheduleTarget.customer_name || 'Customer'} · currently {rescheduleTarget.date} at {fmtTime(firstSlotTime(rescheduleTarget))}
+                  {propRows.length > 0 && ` · ${propRows.length} service${propRows.length > 1 ? 's' : ''}, reserves ${propBlockSlots} hour${propBlockSlots !== 1 ? 's' : ''}`}
                 </p>
               </div>
               <button onClick={() => setRescheduleTarget(null)} className="text-emerald-300 hover:text-cream transition-colors">

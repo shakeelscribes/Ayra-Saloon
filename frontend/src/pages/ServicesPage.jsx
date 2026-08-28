@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   ArrowDownUp,
   ArrowRight,
@@ -104,6 +104,15 @@ const SORT_OPTIONS = [
   { id: 'price_desc', label: 'Price ↓' },
   { id: 'name_asc', label: 'Name A–Z' },
   { id: 'duration_asc', label: 'Quickest first' },
+]
+
+/* Gender filter — who the service is for. Unisex services appear under
+   BOTH Men and Women; kids are their own group. */
+const GENDER_OPTIONS = [
+  { id: 'all', label: 'Everyone' },
+  { id: 'men', label: 'Men' },
+  { id: 'women', label: 'Women' },
+  { id: 'kids', label: 'Kids' },
 ]
 
 /* Tabs: All first, known categories in menu order, then any category that
@@ -214,8 +223,12 @@ export default function ServicesPage() {
   /* Toolbar state — same three controls as the booking page's service list. */
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
+  const [gender, setGender] = useState('all')
   const [sortId, setSortId] = useState('recommended')
   const [sortOpen, setSortOpen] = useState(false)
+
+  /* Reduced-motion: the sliding thumb becomes an instant cross-fade. */
+  const shouldReduceMotion = useReducedMotion()
 
   const load = useCallback(() => {
     setError(false)
@@ -245,11 +258,14 @@ export default function ServicesPage() {
     return counts
   }, [list, tabs])
 
-  /* Filter pipeline: category tab → search query → sort. Same shape as the
-     booking page, minus the audience gating (the public menu shows everything). */
+  /* Filter pipeline: category tab → gender → search query → sort. Same shape
+     as the booking page, plus the audience filter (unisex shows for everyone). */
   const filtered = useMemo(() => {
     let out = list
     if (category !== 'all') out = out.filter((s) => (s.category || 'other') === category)
+    if (gender === 'men') out = out.filter((s) => s.for_kids !== true && (s.audience || 'unisex') !== 'women')
+    if (gender === 'women') out = out.filter((s) => s.for_kids !== true && (s.audience || 'unisex') !== 'men')
+    if (gender === 'kids') out = out.filter((s) => Boolean(s.for_kids))
     const q = query.trim().toLowerCase()
     if (q) {
       out = out.filter(
@@ -265,12 +281,13 @@ export default function ServicesPage() {
     if (sortId === 'name_asc') sorted.sort((a, b) => a.name.localeCompare(b.name))
     if (sortId === 'duration_asc') sorted.sort((a, b) => (a.duration_mins || 0) - (b.duration_mins || 0))
     return sorted
-  }, [list, category, query, sortId])
+  }, [list, category, gender, query, sortId])
 
-  const hasFilters = query.trim() !== '' || category !== 'all' || sortId !== 'recommended'
+  const hasFilters = query.trim() !== '' || category !== 'all' || gender !== 'all' || sortId !== 'recommended'
   const clearFilters = () => {
     setQuery('')
     setCategory('all')
+    setGender('all')
     setSortId('recommended')
   }
 
@@ -314,7 +331,7 @@ export default function ServicesPage() {
             order, same look as the booking page's service list. */}
         {!error && services !== null && (
           <div
-            className="sticky top-[72px] z-30 -mx-6 px-6 py-3 mt-10 bg-emerald-950/85 backdrop-blur-md border-y border-cream/10 space-y-2.5"
+            className="services-filter-bar sticky top-[72px] z-30 -mx-6 px-6 py-3 mt-8 bg-emerald-950/85 backdrop-blur-md border-b border-cream/10"
           >
             <div className="category-tabs-scroll" role="tablist" aria-label="Filter by category">
               {tabs.map((t) => {
@@ -338,8 +355,46 @@ export default function ServicesPage() {
                 )
               })}
             </div>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
+
+            {/* Featured: gender segmented control + search + sort share one row.
+               The gold thumb slides between options (framer layoutId); unisex
+               shows under both Men & Women, kids are their own group. */}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div
+                className="relative inline-flex shrink-0 items-center rounded-full border border-emerald-700 bg-emerald-900/40 p-1 select-none"
+                role="group"
+                aria-label="Filter by audience"
+              >
+                {GENDER_OPTIONS.map((g) => {
+                  const isActive = gender === g.id
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setGender(g.id)}
+                      className={`relative px-3 py-1.5 min-h-[32px] text-xs font-medium rounded-full whitespace-nowrap transition-colors duration-200 ${
+                        isActive ? 'text-emerald-950' : 'text-cream/70 hover:text-cream'
+                      }`}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId="services-gender-thumb"
+                          className="absolute inset-0 rounded-full bg-gold-gradient"
+                          transition={
+                            shouldReduceMotion
+                              ? { duration: 0 }
+                              : { type: 'spring', bounce: 0.18, duration: 0.35 }
+                          }
+                        />
+                      )}
+                      <span className="relative z-10">{g.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400 pointer-events-none" />
                 <input
                   type="text"

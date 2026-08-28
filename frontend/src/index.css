@@ -335,6 +335,39 @@
   .category-tab:not(.active):hover { border-color: rgba(201, 168, 76, 0.5); }
 }
 
+/* Services page toolbar: quieten inactive pills so the active gold tab reads
+   as the clear choice and the bar doesn't look boxed-in/cluttered.
+   Scoped to .services-filter-bar; booking page keeps the outlined pills. */
+.services-filter-bar .category-tab:not(.active) {
+  border-color: transparent;
+  border-width: 1px;
+}
+.services-filter-bar .category-tab:not(.active) {
+  @apply bg-emerald-900/40 text-cream/80;
+}
+@media (hover: hover) and (pointer: fine) {
+  .services-filter-bar .category-tab:not(.active):hover {
+    border-color: rgba(201, 168, 76, 0.5);
+    @apply text-cream;
+  }
+}
+
+/* Booking toolbar (Choose Your Services): quiet treatment so the gold active
+   tab leads. The pill fill is bumped more opaque than the services bar because
+   the booking band is lighter — a 40% fill washes out and looks dull there. */
+.services-sticky-header .category-tab:not(.active) {
+  border-color: transparent;
+}
+.services-sticky-header .category-tab:not(.active) {
+  @apply bg-emerald-900/55 text-cream/85;
+}
+@media (hover: hover) and (pointer: fine) {
+  .services-sticky-header .category-tab:not(.active):hover {
+    border-color: rgba(201, 168, 76, 0.5);
+    @apply text-cream;
+  }
+}
+
 /* Horizontal scroll container for category tabs on mobile. */
 .category-tabs-scroll {
   @apply flex gap-2 overflow-x-auto pb-1 -mx-1 px-1;

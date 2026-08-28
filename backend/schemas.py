@@ -9,6 +9,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     phone: Optional[str] = None
+    gender: Optional[str] = None       # "men" | "women" | None
 
 class UserLogin(BaseModel):
     email: str

@@ -21,8 +21,8 @@ export function AuthProvider({ children }) {
     return data.user
   }, [])
 
-  const register = useCallback(async (name, email, password, phone) => {
-    const { data } = await client.post('/auth/register', { name, email, password, phone })
+  const register = useCallback(async (name, email, password, phone, gender) => {
+    const { data } = await client.post('/auth/register', { name, email, password, phone, gender })
     localStorage.setItem('ayra_token', data.access_token)
     localStorage.setItem('ayra_user', JSON.stringify(data.user))
     setUser(data.user)

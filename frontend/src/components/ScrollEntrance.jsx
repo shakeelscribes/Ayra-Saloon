@@ -37,6 +37,7 @@ export default function ScrollEntrance({
 }) {
   const ref = useRef(null)
   const enteredRef = useRef(false)
+  const belowRef = useRef(false)   // was seen entirely below the viewport
   const [hidden, setHidden] = useState(true)
 
   useEffect(() => {
@@ -48,13 +49,28 @@ export default function ScrollEntrance({
       const { top, bottom } = el.getBoundingClientRect()
       const line = window.innerHeight * trigger
       if (!enteredRef.current) {
-        // First encounter: fire the moment any part of the element is on
-        // screen — from below (top passes the trigger line) or from above
-        // (bottom peeks in during an upward scroll).
-        if (top < line && bottom > 0) {
+        if (top >= line) {
+          // Still entirely below the viewport — note it so a fast-scroll
+          // skip can be detected later.
+          belowRef.current = true
+        } else if (bottom > 0) {
+          // First on-screen encounter: fire the moment any part of the
+          // element is on screen — entering from below (top crossed the
+          // trigger line) or from above (bottom peeks in during an upward
+          // scroll / mid-page reload).
+          enteredRef.current = true
+          setHidden(false)
+        } else if (belowRef.current) {
+          // Entirely above the viewport before ever being seen, and it was
+          // below a moment ago — a fast downward scroll skipped it. Reveal
+          // so the content isn't invisible. (The entrance animation played
+          // off-screen; the user sees the final visible state.)
           enteredRef.current = true
           setHidden(false)
         }
+        // else: mid-page reload with the element above the viewport and
+        // never below — keep hidden so the entrance plays when the user
+        // scrolls up.
       } else if (top >= line) {
         // Fell back below the viewport — re-arm for the next downward pass.
         setHidden(true)

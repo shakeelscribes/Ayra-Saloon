@@ -976,13 +976,6 @@ export default function BookingComponent() {
                       delay={0.18}
                     />
                   </div>
-                  <button
-                    onPointerDown={() => tap(5)}
-                    onClick={goBack}
-                    className="mt-4 mx-auto block text-emerald-300 hover:text-gold-400 text-sm transition-colors duration-200"
-                  >
-                    ← Back
-                  </button>
                 </div>
               )}
 

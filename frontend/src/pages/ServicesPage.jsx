@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
+  ArrowDownUp,
   ArrowRight,
+  ChevronDown,
   Clock,
   Crown,
   Droplets,
@@ -11,8 +13,10 @@ import {
   PenTool,
   RotateCcw,
   Scissors,
+  Search,
   Sparkles,
   SprayCan,
+  X,
 } from 'lucide-react'
 import client from '../api/client'
 import usePageMeta from '../hooks/usePageMeta'
@@ -71,6 +75,19 @@ const CATEGORY_META = {
 const FALLBACK_ICON = Sparkles
 const CATEGORY_ORDER = ['hair', 'colour', 'spa', 'grooming', 'facial', 'tattoo', 'bridal']
 
+/* Short tab labels — the full label + blurb show in the context header
+   when a tab is active. Same words as the booking page tabs (familiarity). */
+const TAB_LABELS = {
+  hair: 'Hair',
+  colour: 'Colour',
+  spa: 'Spa',
+  grooming: 'Grooming',
+  facial: 'Facial',
+  tattoo: 'Tattoo',
+  bridal: 'Bridal',
+  other: 'Other',
+}
+
 function categoryMeta(key) {
   const meta = CATEGORY_META[key]
   if (meta) return meta
@@ -80,19 +97,25 @@ function categoryMeta(key) {
   }
 }
 
-/* Group services by category, known order first, extras after. */
-function groupByCategory(services) {
-  const groups = new Map()
+/* Same sort set as the booking page — identical labels, identical order. */
+const SORT_OPTIONS = [
+  { id: 'recommended', label: 'Recommended' },
+  { id: 'price_asc', label: 'Price ↑' },
+  { id: 'price_desc', label: 'Price ↓' },
+  { id: 'name_asc', label: 'Name A–Z' },
+  { id: 'duration_asc', label: 'Quickest first' },
+]
+
+/* Tabs: All first, known categories in menu order, then any category that
+   exists in the data but isn't in CATEGORY_ORDER (auto-discover). */
+function buildTabs(services) {
+  const tabs = [{ id: 'all', label: 'All' }]
+  for (const id of CATEGORY_ORDER) tabs.push({ id, label: TAB_LABELS[id] || categoryMeta(id).label })
   for (const svc of services) {
-    const key = svc.category || 'other'
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(svc)
+    const id = svc.category || 'other'
+    if (!tabs.some((t) => t.id === id)) tabs.push({ id, label: TAB_LABELS[id] || categoryMeta(id).label })
   }
-  return [...groups.entries()].sort((a, b) => {
-    const ia = CATEGORY_ORDER.indexOf(a[0])
-    const ib = CATEGORY_ORDER.indexOf(b[0])
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-  })
+  return tabs
 }
 
 function SkeletonGrid() {
@@ -119,10 +142,9 @@ function SkeletonGrid() {
 function ServiceCard({ service, index }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.5, ease: EASE_OUT, delay: (index % 6) * 0.05 }}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: EASE_OUT, delay: (index % 9) * 0.04 }}
       className="glass-card p-6 flex flex-col"
     >
       <div className="flex items-start justify-between gap-4">
@@ -189,6 +211,12 @@ export default function ServicesPage() {
   const [services, setServices] = useState(null)
   const [error, setError] = useState(false)
 
+  /* Toolbar state — same three controls as the booking page's service list. */
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState('all')
+  const [sortId, setSortId] = useState('recommended')
+  const [sortOpen, setSortOpen] = useState(false)
+
   const load = useCallback(() => {
     setError(false)
     setServices(null)
@@ -202,10 +230,63 @@ export default function ServicesPage() {
     load()
   }, [load])
 
-  const groups = useMemo(
-    () => (Array.isArray(services) ? groupByCategory(services) : []),
-    [services]
-  )
+  const list = Array.isArray(services) ? services : []
+
+  const tabs = useMemo(() => buildTabs(list), [list])
+
+  /* Per-tab counts, computed on the unfiltered list so numbers stay stable
+     while searching. Empty categories hide themselves (booking-page rule). */
+  const tabCounts = useMemo(() => {
+    const counts = { all: list.length }
+    for (const t of tabs) {
+      if (t.id === 'all') continue
+      counts[t.id] = list.filter((s) => (s.category || 'other') === t.id).length
+    }
+    return counts
+  }, [list, tabs])
+
+  /* Filter pipeline: category tab → search query → sort. Same shape as the
+     booking page, minus the audience gating (the public menu shows everything). */
+  const filtered = useMemo(() => {
+    let out = list
+    if (category !== 'all') out = out.filter((s) => (s.category || 'other') === category)
+    const q = query.trim().toLowerCase()
+    if (q) {
+      out = out.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.description || '').toLowerCase().includes(q)
+      )
+    }
+    const sorted = [...out]
+    if (sortId === 'recommended') sorted.sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+    if (sortId === 'price_asc') sorted.sort((a, b) => a.price - b.price)
+    if (sortId === 'price_desc') sorted.sort((a, b) => b.price - a.price)
+    if (sortId === 'name_asc') sorted.sort((a, b) => a.name.localeCompare(b.name))
+    if (sortId === 'duration_asc') sorted.sort((a, b) => (a.duration_mins || 0) - (b.duration_mins || 0))
+    return sorted
+  }, [list, category, query, sortId])
+
+  const hasFilters = query.trim() !== '' || category !== 'all' || sortId !== 'recommended'
+  const clearFilters = () => {
+    setQuery('')
+    setCategory('all')
+    setSortId('recommended')
+  }
+
+  /* Sort dropdown closes on outside click. */
+  const sortRef = useRef(null)
+  useEffect(() => {
+    if (!sortOpen) return
+    const onClick = (e) => {
+      if (sortRef.current && !sortRef.current.contains(e.target)) setSortOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [sortOpen])
+
+  const activeMeta = category !== 'all' ? categoryMeta(category) : null
+  const ActiveIcon = activeMeta ? activeMeta.icon : null
 
   return (
     <div className="min-h-screen pt-28 pb-24 px-6">
@@ -229,22 +310,92 @@ export default function ServicesPage() {
           </p>
         </motion.header>
 
-        {/* Anchor chips */}
-        {groups.length > 1 && (
-          <nav
-            aria-label="Service categories"
-            className="sticky top-[72px] z-30 -mx-6 px-6 py-3 mt-10 bg-emerald-950/85 backdrop-blur-md border-y border-cream/10 flex gap-2 overflow-x-auto hide-scrollbar"
+        {/* Sticky toolbar — filter tabs + search + sort. Same controls, same
+            order, same look as the booking page's service list. */}
+        {!error && services !== null && (
+          <div
+            className="sticky top-[72px] z-30 -mx-6 px-6 py-3 mt-10 bg-emerald-950/85 backdrop-blur-md border-y border-cream/10 space-y-2.5"
           >
-            {groups.map(([key]) => (
-              <a
-                key={key}
-                href={`#cat-${key}`}
-                className="shrink-0 px-4 py-1.5 rounded-full border border-gold-500/25 text-xs uppercase tracking-[0.15em] text-cream/75 hover:text-emerald-950 hover:bg-gold-400 hover:border-gold-400 transition-colors duration-200"
-              >
-                {categoryMeta(key).label}
-              </a>
-            ))}
-          </nav>
+            <div className="category-tabs-scroll" role="tablist" aria-label="Filter by category">
+              {tabs.map((t) => {
+                const count = tabCounts[t.id] || 0
+                if (t.id !== 'all' && count === 0) return null
+                const isActive = category === t.id
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setCategory(t.id)}
+                    className={`category-tab ${isActive ? 'active' : ''}`}
+                  >
+                    {t.label}
+                    <span className={`text-[10px] ${isActive ? 'text-emerald-950/70' : 'text-emerald-500'}`}>
+                      {count}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search services…"
+                  className="search-input"
+                  aria-label="Search services"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    className="search-clear absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 hover:text-gold-400 transition-colors duration-200"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="relative" ref={sortRef}>
+                <button
+                  type="button"
+                  onClick={() => setSortOpen((o) => !o)}
+                  className="sort-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded={sortOpen}
+                >
+                  <ArrowDownUp className="w-3.5 h-3.5" />
+                  {SORT_OPTIONS.find((s) => s.id === sortId)?.label}
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${sortOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {sortOpen && (
+                  <div className="menu-pop absolute right-0 top-full mt-1 z-30 min-w-[160px] rounded-xl border border-emerald-700 bg-emerald-950/95 backdrop-blur-md shadow-xl shadow-black/40 py-1.5">
+                    {SORT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setSortId(opt.id)
+                          setSortOpen(false)
+                        }}
+                        className={`w-full text-left px-3.5 py-2 text-sm transition-colors duration-150 ${
+                          sortId === opt.id
+                            ? 'text-gold-400 bg-emerald-900/60'
+                            : 'text-cream/80 hover:bg-emerald-900/40 hover:text-cream'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Body */}
@@ -268,80 +419,102 @@ export default function ServicesPage() {
           </div>
         )}
 
-        {!error && groups.map(([key, items]) => {
-          const meta = categoryMeta(key)
-          const Icon = meta.icon
-          return (
-            <section key={key} id={`cat-${key}`} className="scroll-mt-36 mt-16 first:mt-14">
-              {/* Group header */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.55, ease: EASE_OUT }}
-                className="flex items-end justify-between gap-6 mb-7"
-              >
-                <div>
-                  <h2 className="font-display text-3xl md:text-4xl text-cream flex items-center gap-3">
-                    <Icon className="w-6 h-6 text-gold-400 shrink-0" aria-hidden="true" />
-                    {meta.label}
-                  </h2>
-                  {meta.blurb && (
-                    <p className="mt-2 text-sm text-cream/65 max-w-xl">{meta.blurb}</p>
-                  )}
-                </div>
-                <span className="hidden sm:block font-display text-5xl text-gold-500/20 leading-none" aria-hidden="true">
-                  {String(items.length).padStart(2, '0')}
-                </span>
-              </motion.div>
-
-              {/* Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {items.map((svc, i) => (
-                  <ServiceCard key={svc.id} service={svc} index={i} />
-                ))}
-              </div>
-
-              {meta.disclosure && (
-                <div className="mt-8 glass-card p-6 sm:p-8">
-                  <div className="flex items-start gap-4">
-                    <div className="shrink-0 w-11 h-11 rounded-xl bg-gold-500/10 border border-gold-500/25 flex items-center justify-center">
-                      <Icon className="w-5 h-5 text-gold-400" aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-display text-xl text-cream">
-                        Bridal & Groom looks, arranged personally
-                      </h3>
-                      <p className="mt-2 text-sm text-cream/70 leading-relaxed">
-                        {meta.disclosure}
-                      </p>
-                      <div className="mt-4 flex flex-wrap gap-3">
-                        <a
-                          href={waEnquire({ name: 'Bridal & Groom Makeup', price: 2500 })}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn-gold !px-5 !py-2.5 text-xs inline-flex items-center gap-2"
-                        >
-                          <WhatsAppIcon className="w-4 h-4" aria-hidden="true" />
-                          WhatsApp us
-                        </a>
-                        <a
-                          href="tel:+918270606750"
-                          className="btn-outline !px-5 !py-2.5 text-xs inline-flex items-center gap-2"
-                        >
-                          Call +91 82706 06750
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+        {/* Category context — icon, full name and blurb appear only when a
+            specific tab is active, so "All" stays chrome-free. */}
+        {!error && activeMeta && filtered.length > 0 && (
+          <motion.div
+            key={category}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: EASE_OUT }}
+            className="mt-10 mb-7 flex items-start gap-4"
+          >
+            <div className="shrink-0 w-11 h-11 rounded-xl bg-gold-500/10 border border-gold-500/25 flex items-center justify-center">
+              <ActiveIcon className="w-5 h-5 text-gold-400" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="font-display text-2xl md:text-3xl text-cream">{activeMeta.label}</h2>
+              {activeMeta.blurb && (
+                <p className="mt-1 text-sm text-cream/65 max-w-xl">{activeMeta.blurb}</p>
               )}
-            </section>
-          )
-        })}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Result count — quiet status line, updates with every control. */}
+        {!error && services !== null && (
+          <p className="mt-8 text-xs uppercase tracking-[0.15em] text-cream/50" aria-live="polite">
+            Showing {filtered.length} of {list.length} services
+          </p>
+        )}
+
+        {/* Grid */}
+        {!error && filtered.length > 0 && (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((svc, i) => (
+              <ServiceCard key={svc.id} service={svc} index={i} />
+            ))}
+          </div>
+        )}
+
+        {/* Empty state — always offer the way back (forgiveness). */}
+        {!error && services !== null && filtered.length === 0 && (
+          <div className="mt-4 glass-card p-12 text-center max-w-lg mx-auto">
+            <p className="font-display text-xl text-cream mb-2">
+              {query.trim()
+                ? <>Nothing matches “<span className="text-gold-400">{query.trim()}</span>”.</>
+                : 'No services in this category yet.'}
+            </p>
+            <p className="text-cream/65 text-sm mb-6">
+              Try a different word, or clear the filters to see the full menu.
+            </p>
+            {hasFilters && (
+              <button onClick={clearFilters} className="btn-outline inline-flex items-center gap-2">
+                <RotateCcw className="w-4 h-4" aria-hidden="true" />
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Bridal disclosure — lives on the Bridal tab, next to what it describes. */}
+        {!error && category === 'bridal' && filtered.length > 0 && (
+          <div className="mt-8 glass-card p-6 sm:p-8">
+            <div className="flex items-start gap-4">
+              <div className="shrink-0 w-11 h-11 rounded-xl bg-gold-500/10 border border-gold-500/25 flex items-center justify-center">
+                <Crown className="w-5 h-5 text-gold-400" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-display text-xl text-cream">
+                  Bridal & Groom looks, arranged personally
+                </h3>
+                <p className="mt-2 text-sm text-cream/70 leading-relaxed">
+                  {CATEGORY_META.bridal.disclosure}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <a
+                    href={waEnquire({ name: 'Bridal & Groom Makeup', price: 2500 })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-gold !px-5 !py-2.5 text-xs inline-flex items-center gap-2"
+                  >
+                    <WhatsAppIcon className="w-4 h-4" aria-hidden="true" />
+                    WhatsApp us
+                  </a>
+                  <a
+                    href="tel:+918270606750"
+                    className="btn-outline !px-5 !py-2.5 text-xs inline-flex items-center gap-2"
+                  >
+                    Call +91 82706 06750
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Bottom CTA */}
-        {!error && groups.length > 0 && (
+        {!error && list.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}

@@ -448,6 +448,21 @@
   .sort-trigger:hover { border-color: rgba(201, 168, 76, 0.5); }
 }
 
+/* Dropdown menu entrance — quick scale+fade anchored to the trigger's
+   corner (never from nothing, never from center). Enter-only; exit is
+   instant, which reads faster than an animated dismissal. */
+@keyframes menu-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.menu-pop {
+  transform-origin: top right;
+  animation: menu-pop 150ms var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-pop { animation: none; }
+}
+
 /* Reduced-motion fallback (Apple §14) — opacity-only, no transforms. */
 @media (prefers-reduced-motion: reduce) {
   .service-row,

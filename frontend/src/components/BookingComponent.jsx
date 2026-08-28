@@ -374,7 +374,7 @@ function ServiceList({ services, picked, picks, audience, forKids, setPicked, se
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${sortOpen ? 'rotate-180' : ''}`} />
             </button>
             {sortOpen && (
-              <div className="absolute right-0 top-full mt-1 z-30 min-w-[160px] rounded-xl border border-emerald-700 bg-emerald-950/95 backdrop-blur-md shadow-xl shadow-black/40 py-1.5">
+              <div className="menu-pop absolute right-0 top-full mt-1 z-30 min-w-[160px] rounded-xl border border-emerald-700 bg-emerald-950/95 backdrop-blur-md shadow-xl shadow-black/40 py-1.5">
                 {SORT_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}

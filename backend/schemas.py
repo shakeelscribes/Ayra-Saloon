@@ -9,6 +9,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     phone: Optional[str] = None
+    gender: Optional[str] = None       # "men" | "women" | None
 
 class UserLogin(BaseModel):
     email: str
@@ -91,6 +92,7 @@ class BookingOut(BaseModel):
     service: Optional[ServiceOut] = None
     stylist: Optional[StylistOut] = None
     customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
     # ── New multi-slot shape
     services: List[PydanticObjectId] = []
     slots: List[BookingSlotOut] = []
@@ -104,12 +106,14 @@ class BookingOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 # ── Availability ──────────────────────────────────────────────────────────────
+class BusyInterval(BaseModel):
+    start: str             # "HH:MM"
+    end: str               # "HH:MM" — start + service duration
+
 class AvailabilityResponse(BaseModel):
     stylist_id: PydanticObjectId
     date: str
-    available_slots: List[str]
-    booked_slots: List[str]
-    consecutive_starts: List[str] = []   # starts where `slot_count` consecutive hours are free
+    busy: List[BusyInterval] = []   # booked windows; everything else is free
 
 class RescheduleProposal(BaseModel):
     date: str              # "YYYY-MM-DD"

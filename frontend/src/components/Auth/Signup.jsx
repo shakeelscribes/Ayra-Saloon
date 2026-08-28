@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 export default function Signup() {
   const { register } = useAuth()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', gender: '' })
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -18,7 +18,7 @@ export default function Signup() {
     if (form.password.length < 6) { toast.error('Password must be at least 6 characters'); return }
     setLoading(true)
     try {
-      const user = await register(form.name, form.email, form.password, form.phone)
+      const user = await register(form.name, form.email, form.password, form.phone, form.gender)
       toast.success(`Welcome to Ayra Saloon, ${user.name}!`)
       navigate('/')
     } catch (err) {
@@ -72,6 +72,26 @@ export default function Signup() {
                 </div>
               </div>
             ))}
+
+            {/* Gender — stored on the profile so the booking flow can skip
+                the "for whom" step (locked decision #9). Optional. */}
+            <div>
+              <label htmlFor="signup-gender" className="text-gold-400 text-xs font-medium tracking-widest uppercase block mb-2">
+                Gender
+              </label>
+              <select
+                id="signup-gender"
+                name="gender"
+                value={form.gender}
+                onChange={handle}
+                className="luxury-input"
+              >
+                <option value="">Prefer not to say</option>
+                <option value="men">Male</option>
+                <option value="women">Female</option>
+              </select>
+              <p className="text-emerald-300 text-xs mt-1.5">Pre-fills the right services when you book.</p>
+            </div>
 
             {/* Password */}
             <div>

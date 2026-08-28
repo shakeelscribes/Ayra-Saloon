@@ -256,10 +256,16 @@
 
 /* Hero card entrance — opacity + small y shift. CSS keyframe so it doesn't
    re-fire on every render (only on mount), and stays off the React reconciler
-   path that was causing blank-screen races. */
+   path that was causing blank-screen races. The shorthand lives in the class
+   (not inline in JSX) so a parent re-render can't re-trigger the animation,
+   and the easing is the CSS var — interpolating a JS array into the inline
+   shorthand produced invalid CSS and silently disabled the entrance. */
 @keyframes hero-card-in {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+.hero-card-in {
+  animation: hero-card-in 280ms var(--ease-out) both;
 }
 
 /* Step fade — used by BookingComponent step container. Plain CSS so the
@@ -329,6 +335,39 @@
   .category-tab:not(.active):hover { border-color: rgba(201, 168, 76, 0.5); }
 }
 
+/* Services page toolbar: quieten inactive pills so the active gold tab reads
+   as the clear choice and the bar doesn't look boxed-in/cluttered.
+   Scoped to .services-filter-bar; booking page keeps the outlined pills. */
+.services-filter-bar .category-tab:not(.active) {
+  border-color: transparent;
+  border-width: 1px;
+}
+.services-filter-bar .category-tab:not(.active) {
+  @apply bg-emerald-900/40 text-cream/80;
+}
+@media (hover: hover) and (pointer: fine) {
+  .services-filter-bar .category-tab:not(.active):hover {
+    border-color: rgba(201, 168, 76, 0.5);
+    @apply text-cream;
+  }
+}
+
+/* Booking toolbar (Choose Your Services): quiet treatment so the gold active
+   tab leads. The pill fill is bumped more opaque than the services bar because
+   the booking band is lighter — a 40% fill washes out and looks dull there. */
+.services-sticky-header .category-tab:not(.active) {
+  border-color: transparent;
+}
+.services-sticky-header .category-tab:not(.active) {
+  @apply bg-emerald-900/55 text-cream/85;
+}
+@media (hover: hover) and (pointer: fine) {
+  .services-sticky-header .category-tab:not(.active):hover {
+    border-color: rgba(201, 168, 76, 0.5);
+    @apply text-cream;
+  }
+}
+
 /* Horizontal scroll container for category tabs on mobile. */
 .category-tabs-scroll {
   @apply flex gap-2 overflow-x-auto pb-1 -mx-1 px-1;
@@ -371,17 +410,26 @@
 .service-row .meta { @apply text-cream/90 text-sm font-semibold whitespace-nowrap; }
 .service-row .meta-sub { @apply text-emerald-500 text-[11px] mt-0.5 text-right; }
 
-/* Boy/Girl chip on kid services — sky for boy, pink for girl. */
-.service-row .gender-chip {
+/* Boy/Girl chip on kid services — sky for boy, pink for girl. Used on the
+   service rows AND the per-service stylist pickers in the booking flow. */
+.gender-chip {
   @apply text-[9px] uppercase tracking-widest font-semibold
          px-1.5 py-0.5 rounded-full border;
   flex-shrink: 0;
 }
-.service-row .gender-chip.boy  {
+.gender-chip.boy  {
   @apply border-sky-400/40 bg-sky-400/10 text-sky-300;
 }
-.service-row .gender-chip.girl {
+.gender-chip.girl {
   @apply border-pink-400/40 bg-pink-400/10 text-pink-300;
+}
+
+/* Unisex tag on shared services — gold, quieter than the kid chips. */
+.service-row .audience-chip {
+  @apply text-[9px] uppercase tracking-widest font-semibold
+         px-1.5 py-0.5 rounded-full border
+         border-gold-500/40 bg-gold-500/10 text-gold-400;
+  flex-shrink: 0;
 }
 
 /* Stagger entrance for service rows — capped at 8 to keep it snappy. */
@@ -438,6 +486,21 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .sort-trigger:hover { border-color: rgba(201, 168, 76, 0.5); }
+}
+
+/* Dropdown menu entrance — quick scale+fade anchored to the trigger's
+   corner (never from nothing, never from center). Enter-only; exit is
+   instant, which reads faster than an animated dismissal. */
+@keyframes menu-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.menu-pop {
+  transform-origin: top right;
+  animation: menu-pop 150ms var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-pop { animation: none; }
 }
 
 /* Reduced-motion fallback (Apple §14) — opacity-only, no transforms. */

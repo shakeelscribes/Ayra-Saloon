@@ -82,9 +82,9 @@ export default function Hero() {
               Book your experience
               <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </Link>
-            <a href="#services" className="btn-outline text-base inline-flex items-center justify-center bg-emerald-950/40 backdrop-blur-sm">
+            <Link to="/services" className="btn-outline text-base inline-flex items-center justify-center bg-emerald-950/40 backdrop-blur-sm">
               Explore services
-            </a>
+            </Link>
           </motion.div>
         </div>
       </div>

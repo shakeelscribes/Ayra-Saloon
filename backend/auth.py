@@ -2,11 +2,15 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 import bcrypt
+import os
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import models
 
-SECRET_KEY = "ayra-saloon-super-secret-key-2024"
+# Secret comes from the environment (.env / hosting config). The fallback
+# keeps local dev working without setup; production MUST set SECRET_KEY.
+# Rotating the secret invalidates all existing tokens (users re-login).
+SECRET_KEY = os.getenv("SECRET_KEY", "ayra-saloon-super-secret-key-2024")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 

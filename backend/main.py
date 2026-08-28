@@ -1,9 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 from database import init_db
+from limiter import limiter
 import models
 
 # ── Lifespan event for DB connection, seeding and background maintenance ──────
@@ -62,10 +66,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Rate limiting (slowapi) ───────────────────────────────────────────────────
+# Per-route limits live in the route modules; this wires the shared limiter
+# and returns a clean 429 when a client exceeds its budget.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
+# Origins come from ALLOWED_ORIGINS (comma-separated) so pointing at the
+# production domain is a config change, not a code change. Defaults cover
+# the local Vite dev server.
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[o.strip() for o in _allowed_origins.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

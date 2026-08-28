@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, X } from 'lucide-react'
+import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, Phone, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../../api/client'
 
@@ -32,6 +32,16 @@ const kindConfig = {
   reschedule_confirmed: { label: 'Reschedule accepted', cls: 'text-emerald-400 bg-emerald-900/20 border-emerald-700' },
   booking_declined:     { label: 'Declined',            cls: 'text-red-400 bg-red-900/20 border-red-800' },
   booking_cancelled:    { label: 'Cancelled',           cls: 'text-red-400 bg-red-900/20 border-red-800' },
+}
+
+/* Click-to-call href — stored phones may be "98765 43210" or "+91…";
+   tel: needs bare digits with country code. */
+const telHref = (phone) => {
+  if (!phone) return null
+  const digits = phone.replace(/\D/g, '')
+  if (!digits) return null
+  if (digits.length === 10) return `tel:+91${digits}`
+  return `tel:+${digits}`
 }
 
 export default function AdminDashboard() {
@@ -152,11 +162,22 @@ export default function AdminDashboard() {
   // Multi-slot shape: a booking holds N slots (one per service). Fall back to
   // the legacy singular fields for old snapshot bookings.
   const bookingSlots = (b) => (b.slots?.length ? b.slots : [])
+
+  // Kids services come in Boy/Girl variants that share one name — append the
+  // variant wherever a slot's service is listed as plain text.
+  const svcLabel = (svc) => (svc?.kid_gender ? `${svc.name} (${svc.kid_gender[0].toUpperCase()}${svc.kid_gender.slice(1)})` : svc?.name)
   const firstSlotTime = (b) => b.slots?.[0]?.time_slot || b.time_slot || ''
   const bookingTotal = (b) =>
     b.slots?.length
       ? b.slots.reduce((s, sl) => s + (sl.service?.price || 0), 0)
       : (b.service?.price || 0)
+
+  /* ── Duration-based slot math (mirrors backend/routes/availability.py) ── */
+  const toMins = (hm) => { const [h, m] = hm.split(':').map(Number); return h * 60 + m }
+  const isFree = (busy, startMin, endMin) =>
+    !(busy || []).some((b) => startMin < toMins(b.end) && toMins(b.start) < endMin)
+  const slotsNeededFor = (rows) =>
+    Math.max(1, Math.ceil((rows.reduce((s, r) => s + (r.duration_mins || 60), 0) - 30) / 60))
 
   // Group confirmed bookings by first-slot time
   const timeline = [...confirmed].sort((a, b) => firstSlotTime(a).localeCompare(firstSlotTime(b)))
@@ -169,9 +190,9 @@ export default function AdminDashboard() {
     [rescheduleTarget]
   )
 
-  // Availability per involved stylist for the proposed date. Own rows on the
-  // same date are moving away, so they count as free (backend excludes them
-  // from conflict checks the same way).
+  // Availability per involved stylist for the proposed date. This booking's
+  // own rows are excluded server-side via exclude_booking_id — they're moving
+  // away, so they must not block their own reschedule.
   useEffect(() => {
     if (!rescheduleTarget || !propDate) return
     const controller = new AbortController()
@@ -179,17 +200,12 @@ export default function AdminDashboard() {
     setAvail({})
     setPropStart(null)
     Promise.all(propStylistIds.map(id =>
-      client.get(`/availability/?stylist_id=${id}&date=${propDate}`, { signal: controller.signal })
-        .then(r => {
-          const free = new Set(r.data.available_slots)
-          if (propDate === rescheduleTarget.date) {
-            propRows.forEach(sl => {
-              if (String(sl.stylist_id) === id) free.add(sl.time_slot)
-            })
-          }
-          return [id, free]
-        })
-        .catch(() => [id, new Set()])
+      client.get(
+        `/availability/?stylist_id=${id}&date=${propDate}&exclude_booking_id=${rescheduleTarget.id}`,
+        { signal: controller.signal }
+      )
+        .then(r => [id, r.data.busy || []])
+        .catch(() => [id, []])
     )).then(pairs => {
       if (!controller.signal.aborted) setAvail(Object.fromEntries(pairs))
     }).finally(() => {
@@ -198,20 +214,31 @@ export default function AdminDashboard() {
     return () => controller.abort()
   }, [rescheduleTarget, propDate])
 
-  // A start works when every service's own stylist is free at its cascaded time
+  // The visit reserves whole hours: real durations rounded up with the
+  // 30-min grace — same rule as creation and the backend.
+  const propBlockSlots = useMemo(
+    () => slotsNeededFor(propRows),
+    [rescheduleTarget]
+  )
+
+  // A start works when the whole back-to-back block fits before closing and
+  // every service's own stylist is interval-free for its real window.
   const viableStarts = useMemo(() => {
     const viable = new Set()
     if (!rescheduleTarget || !propRows.length) return viable
-    for (let s = 0; s + propRows.length <= ALL_SLOTS.length; s++) {
+    for (let s = 0; s + propBlockSlots <= ALL_SLOTS.length; s++) {
+      let cursor = toMins(ALL_SLOTS[s])
       let ok = true
       for (let i = 0; i < propRows.length; i++) {
-        const free = avail[String(propRows[i].stylist_id)]
-        if (!free || !free.has(ALL_SLOTS[s + i])) { ok = false; break }
+        const dur = propRows[i].duration_mins || 60
+        const busy = avail[String(propRows[i].stylist_id)]
+        if (!busy || !isFree(busy, cursor, cursor + dur)) { ok = false; break }
+        cursor += dur
       }
       if (ok) viable.add(ALL_SLOTS[s])
     }
     return viable
-  }, [rescheduleTarget, avail])
+  }, [rescheduleTarget, avail, propBlockSlots])
 
   const availLoaded = !availLoading && propStylistIds.length > 0 &&
     propStylistIds.every(id => avail[id])
@@ -290,6 +317,16 @@ export default function AdminDashboard() {
                     <div className="min-w-0 grow">
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</p>
+                        {b.customer_phone && telHref(b.customer_phone) && (
+                          <a
+                            href={telHref(b.customer_phone)}
+                            className="flex items-center gap-1 text-emerald-300 text-xs hover:text-gold-400 transition-colors"
+                            title="Call the customer"
+                          >
+                            <Phone className="w-3 h-3" />
+                            {b.customer_phone}
+                          </a>
+                        )}
                         <span className="text-emerald-300 text-xs">{b.date}</span>
                         <span className="text-gold-400 text-xs font-semibold">₹{bookingTotal(b).toLocaleString('en-IN')}</span>
                       </div>
@@ -297,7 +334,7 @@ export default function AdminDashboard() {
                         {bookingSlots(b).map(sl => (
                           <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
                             <span className="text-amber-400 font-semibold w-16">{fmtTime(sl.time_slot)}</span>
-                            <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                            <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                             <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                             <span className="text-emerald-300">₹{sl.service?.price}</span>
                           </div>
@@ -305,6 +342,13 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openReschedule(b)}
+                        className="text-xs text-violet-300 hover:text-violet-200 transition-colors whitespace-nowrap"
+                        title="Propose a new slot — call the customer first to confirm"
+                      >
+                        Reschedule
+                      </button>
                       <button
                         onClick={() => handleApprove(b.id)}
                         className="btn-gold !px-4 !py-2 text-xs"
@@ -342,18 +386,27 @@ export default function AdminDashboard() {
                     <div className="min-w-0 grow">
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="text-cream font-medium text-sm">{b.customer_name || 'Customer'}</p>
+                        {b.customer_phone && telHref(b.customer_phone) && (
+                          <a
+                            href={telHref(b.customer_phone)}
+                            className="flex items-center gap-1 text-emerald-300 text-xs hover:text-gold-400 transition-colors"
+                            title="Call the customer"
+                          >
+                            <Phone className="w-3 h-3" />
+                            {b.customer_phone}
+                          </a>
+                        )}
                         <span className="text-emerald-300 text-xs">{b.date}</span>
-                        {b.customer_phone && <span className="text-emerald-300 text-xs">{b.customer_phone}</span>}
                       </div>
                       <p className="text-violet-300 text-xs mt-2">
                         Proposed: <span className="text-cream font-medium">{b.proposed_date} at {fmtTime(b.proposed_time_slot)}</span>
-                        <span className="text-emerald-500"> (was {b.date} at {fmtTime(b.time_slot)})</span>
+                        <span className="text-emerald-500"> (was {b.date} at {fmtTime(firstSlotTime(b))})</span>
                       </p>
                       <div className="mt-2 space-y-1.5">
                         {bookingSlots(b).map(sl => (
                           <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
                             <span className="text-violet-400 font-semibold w-16">{fmtTime(sl.time_slot)}</span>
-                            <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                            <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                             <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                           </div>
                         ))}
@@ -412,7 +465,7 @@ export default function AdminDashboard() {
                       {bookingSlots(b).map(sl => (
                         <div key={sl.id} className="flex flex-wrap items-center gap-3 text-sm border-t border-emerald-800/60 pt-1.5">
                           <span className="text-gold-400 font-semibold text-xs w-16">{fmtTime(sl.time_slot)}</span>
-                          <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                          <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                           <span className="flex items-center gap-1 text-emerald-300 text-xs"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                           <span className="text-emerald-300 text-xs ml-auto">₹{sl.service?.price}</span>
                         </div>
@@ -432,31 +485,34 @@ export default function AdminDashboard() {
             <div className="space-y-3">
               {Object.entries(
                 confirmed.reduce((acc, b) => {
-                  // Count slots per stylist — a 2-service booking occupies a
-                  // stylist (or two) for 2 hours, not 1.
+                  // Minutes per stylist — a stylist is busy for their
+                  // services' real durations, not a flat hour per row.
                   const rows = bookingSlots(b).length
                     ? bookingSlots(b)
-                    : (b.stylist ? [{ stylist: b.stylist }] : [])
+                    : (b.stylist ? [{ stylist: b.stylist, duration_mins: 60 }] : [])
                   rows.forEach(sl => {
                     const name = sl.stylist?.name
-                    if (name) acc[name] = (acc[name] || 0) + 1
+                    if (name) acc[name] = (acc[name] || 0) + (sl.duration_mins || 60)
                   })
                   return acc
                 }, {})
-              ).map(([name, count]) => (
-                <div key={name} className="glass-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-cream text-sm font-medium">{name}</span>
-                    <span className="text-gold-400 text-sm font-semibold">{count} slot{count !== 1 ? 's' : ''}</span>
+              ).map(([name, mins]) => {
+                const hrs = mins / 60
+                return (
+                  <div key={name} className="glass-card p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-cream text-sm font-medium">{name}</span>
+                      <span className="text-gold-400 text-sm font-semibold">{hrs % 1 ? hrs.toFixed(1) : hrs} h booked</span>
+                    </div>
+                    <div className="w-full bg-emerald-900 rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, (hrs / 11) * 100)}%`, background: 'linear-gradient(90deg, #c9a84c, #f0d080)' }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-emerald-900 rounded-full h-1.5">
-                    <div
-                      className="h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, (count / 8) * 100)}%`, background: 'linear-gradient(90deg, #c9a84c, #f0d080)' }}
-                    />
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               {confirmed.length === 0 && (
                 <div className="glass-card p-6 text-center text-emerald-300 text-sm">No data for this day.</div>
               )}
@@ -530,7 +586,8 @@ export default function AdminDashboard() {
               <div>
                 <h3 className="font-display text-xl text-cream">Propose Reschedule</h3>
                 <p className="text-emerald-300 text-xs mt-1">
-                  {rescheduleTarget.customer_name || 'Customer'} · currently {rescheduleTarget.date} at {fmtTime(rescheduleTarget.time_slot)}
+                  {rescheduleTarget.customer_name || 'Customer'} · currently {rescheduleTarget.date} at {fmtTime(firstSlotTime(rescheduleTarget))}
+                  {propRows.length > 0 && ` · ${propRows.length} service${propRows.length > 1 ? 's' : ''}, reserves ${propBlockSlots} hour${propBlockSlots !== 1 ? 's' : ''}`}
                 </p>
               </div>
               <button onClick={() => setRescheduleTarget(null)} className="text-emerald-300 hover:text-cream transition-colors">

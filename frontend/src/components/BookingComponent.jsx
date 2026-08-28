@@ -91,11 +91,12 @@ function HeroCard({ icon: Icon, title, subtitle, onSelect, delay = 0, large = fa
       type="button"
       onPointerDown={() => tap(5)}
       onClick={onSelect}
-      style={{
-        animation: `hero-card-in 280ms ${EASE_OUT} both`,
-        animationDelay: `${delay * 1000}ms`,
-      }}
-      className={`tap-target group relative w-full text-left rounded-2xl border border-emerald-700/60 glass-card hover:border-gold-500/60
+      // Stagger lives inline (animationDelay only). The animation itself is a
+      // CSS class: setting the full shorthand inline would re-trigger it on
+      // every parent re-render (the reported flicker), and EASE_OUT is an
+      // array that can't interpolate into a valid cubic-bezier() string.
+      style={{ animationDelay: `${delay * 1000}ms` }}
+      className={`hero-card-in tap-target group relative w-full text-left rounded-2xl border border-emerald-700/60 glass-card hover:border-gold-500/60
         ${large ? 'p-7 sm:p-8' : 'p-5 sm:p-6'}`}
     >
       <div className="flex items-center gap-4">
@@ -486,20 +487,50 @@ export default function BookingComponent() {
   // Apple-style: the first step is a hero question — "Myself or someone else?"
   // If the user picks "Myself" and we already have their gender on file, the
   // Gender step is skipped and we land directly on Services.
-  const [forWhom, setForWhom] = useState(null)        // 'myself' | 'someone_else' | null
-  const [step, setStep] = useState(0)
-  const [audience, setAudience] = useState(null)   // men | women | null(unisex/kids) — no default; user must choose
-  const [forKids, setForKids] = useState(false)
+  //
+  // The saved draft is read synchronously here so the first render is already
+  // at the restored step — otherwise the "For me / For someone else" hero
+  // cards flash for a frame before the wizard jumps to where the user left
+  // off (the flicker seen when re-opening Book Now).
+  const DRAFT_KEY = 'booking_draft'
+  const draft = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY)
+      return raw ? JSON.parse(raw) : null
+    } catch { /* corrupt or blocked storage */ return null }
+  }, [])
 
-  const [picked, setPicked] = useState([])        // ordered service objects
-  const [picks, setPicks] = useState({})          // serviceId -> stylistId | 'any'
+  const [forWhom, setForWhom] = useState(() => draft?.forWhom ?? null) // 'myself' | 'someone_else' | null
+  const [step, setStep] = useState(() => {
+    const s = draft?.step
+    return typeof s === 'number' && s >= 0 ? s : 0
+  })
+  const [audience, setAudience] = useState(() => draft?.audience ?? null) // men | women | null — no default
+  const [forKids, setForKids] = useState(() => Boolean(draft?.forKids))
 
-  const [date, setDate] = useState(istDate(1))
-  const [startTime, setStartTime] = useState(null)
+  const [picked, setPicked] = useState([])        // ordered service objects (restored once catalog loads)
+  const [picks, setPicks] = useState(() => {
+    const p = draft?.picks
+    return p && typeof p === 'object' ? { ...p } : {}
+  })                                            // serviceId -> stylistId | 'any'
+
+  // Clamp stale drafts: a date/startTime restored from a previous session can
+  // be in the past (or predate a catalog change). Past dates are unbookable.
+  const [date, setDate] = useState(() => {
+    const d = draft?.date
+    const today = istDate(0)
+    return d && d >= today ? d : istDate(1)
+  })
+  const [startTime, setStartTime] = useState(() => {
+    const d = draft?.startTime
+    const savedDate = draft?.date
+    const today = istDate(0)
+    return d && (!savedDate || savedDate >= today) ? d : null
+  })
   const [availMap, setAvailMap] = useState({})    // stylistId -> busy intervals [{start, end}]
   const [loadingSlots, setLoadingSlots] = useState(false)
 
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(() => draft?.notes || '')
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -517,38 +548,34 @@ export default function BookingComponent() {
     }
   }, [searchParams, services])
 
-  /* ── Draft persistence (sessionStorage) ── */
-  const DRAFT_KEY = 'booking_draft'
-  const draftHydrated = useRef(false)
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(DRAFT_KEY)
-      if (!raw) return
-      const d = JSON.parse(raw)
-      if (d.forWhom) setForWhom(d.forWhom)
-      if (d.audience) setAudience(d.audience)
-      if (d.forKids) setForKids(!!d.forKids)
-      if (Array.isArray(d.pickedIds) && d.pickedIds.length) {
-        setPicked((prev) => {
-          if (prev.length) return prev
-          const byId = new Map(services.map((s) => [String(s.id), s]))
-          return d.pickedIds.map((id) => byId.get(String(id))).filter(Boolean)
-        })
-      }
-      if (d.picks && typeof d.picks === 'object') setPicks((prev) => ({ ...d.picks, ...prev }))
-      // Clamp stale drafts: a date restored from a previous session can be in
-      // the past (or predate a catalog change). Past dates are never bookable.
-      const today = istDate(0)
-      if (d.date) setDate(d.date >= today ? d.date : istDate(1))
-      if (d.startTime && (!d.date || d.date >= today)) setStartTime(d.startTime)
-      if (d.notes) setNotes(d.notes)
-      if (typeof d.step === 'number' && d.step >= 0) setStep(d.step)
-    } catch { /* ignore corrupt draft */ }
-    finally { draftHydrated.current = true }
-  }, [services])
+  /* ── Draft persistence (sessionStorage) ──
+     Picked services need the fetched catalog, so their ids can't be resolved
+     synchronously in the useState initialiser above. Rebuild the objects once
+     services arrive; until then (draft-restore users only) the wizard body is
+     gated by `hydrated` so the restored step never paints empty or flashes
+     step 0. Users without a draft are hydrated from the start. */
+  const pendingIds = useMemo(() => {
+    const ids = draft?.pickedIds
+    return Array.isArray(ids) && ids.length > 0 ? ids : null
+  }, [])
+
+  const [hydrated, setHydrated] = useState(() => !pendingIds)
 
   useEffect(() => {
-    if (!draftHydrated.current) return
+    if (!pendingIds || services.length === 0) return
+    // Deep-link preselect may already have populated the cart — only rebuild
+    // from the draft when it's still empty. The gate always opens once the
+    // catalog arrives.
+    if (picked.length === 0) {
+      const byId = new Map(services.map((s) => [String(s.id), s]))
+      const restored = pendingIds.map((id) => byId.get(String(id))).filter(Boolean)
+      if (restored.length) setPicked(restored)
+    }
+    setHydrated(true)
+  }, [services, pendingIds, picked])
+
+  useEffect(() => {
+    if (!hydrated) return
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         forWhom, audience, forKids,
@@ -556,7 +583,7 @@ export default function BookingComponent() {
         picks, date, startTime, notes, step,
       }))
     } catch { /* quota or private mode — ignore */ }
-  }, [forWhom, audience, forKids, picked, picks, date, startTime, notes, step])
+  }, [hydrated, forWhom, audience, forKids, picked, picks, date, startTime, notes, step])
 
   /* ── Audience switches prune the cart ──
      Picking a Women's service, going back, and switching to Men must not
@@ -817,6 +844,16 @@ export default function BookingComponent() {
             for the services screen's sticky tabs/search header. The step
             transition is opacity-only, so clipping isn't needed. */}
         <div className="glass-card p-5 sm:p-8 mb-8">
+          {/* Draft-restore users: hold the first paint until the saved cart is
+              rebuilt so the restored step renders with data (no flash of step
+              0's hero cards, no empty step). No-draft users pass straight
+              through — hydrated is true from the start. */}
+          {!hydrated && (
+            <div className="min-h-[440px] flex items-center justify-center">
+              <div className="text-emerald-300/70 text-sm animate-pulse">Loading your saved booking…</div>
+            </div>
+          )}
+          {hydrated && (
           <div
             key={logicalStepName}
             className="min-h-[440px] animate-step-fade"
@@ -1180,6 +1217,7 @@ export default function BookingComponent() {
                 </div>
               )}
           </div>
+          )}
         </div>
 
         {/* Navigation — on Whom and Gender the HeroCard is the action, so the

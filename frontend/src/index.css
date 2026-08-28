@@ -256,10 +256,16 @@
 
 /* Hero card entrance — opacity + small y shift. CSS keyframe so it doesn't
    re-fire on every render (only on mount), and stays off the React reconciler
-   path that was causing blank-screen races. */
+   path that was causing blank-screen races. The shorthand lives in the class
+   (not inline in JSX) so a parent re-render can't re-trigger the animation,
+   and the easing is the CSS var — interpolating a JS array into the inline
+   shorthand produced invalid CSS and silently disabled the entrance. */
 @keyframes hero-card-in {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+.hero-card-in {
+  animation: hero-card-in 280ms var(--ease-out) both;
 }
 
 /* Step fade — used by BookingComponent step container. Plain CSS so the

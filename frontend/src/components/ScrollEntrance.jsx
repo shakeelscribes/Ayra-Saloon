@@ -74,6 +74,13 @@ export default function ScrollEntrance({
       } else if (top >= line) {
         // Fell back below the viewport — re-arm for the next downward pass.
         setHidden(true)
+      } else {
+        // Back on screen (or above it): ensure visible. A re-armed element
+        // (hidden while below the viewport) must be revealed again the
+        // moment it scrolls back into view — otherwise it stays invisible
+        // forever. Upward scroll stays static (no re-trigger) since the
+        // value is unchanged; downward re-entry replays the entrance.
+        setHidden(false)
       }
     }
     const schedule = () => {

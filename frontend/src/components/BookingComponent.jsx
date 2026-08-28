@@ -75,6 +75,11 @@ const tap = (ms = 5) => {
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
+/* Kids services come in Boy/Girl variants that share one name ("Kids Hair
+   Cut"). Wherever a picked service is listed as plain text, append the
+   variant so the two entries stay distinguishable. */
+const svcLabel = (svc) => (svc?.kid_gender ? `${svc.name} (${cap(svc.kid_gender)})` : svc?.name)
+
 /* Hero card — used for the For Whom and Gender pickers. Press feedback on
    pointer-down (Apple: kill latency). No "selected" state — the user must
    make a deliberate choice; nothing should look pre-picked because customers
@@ -719,7 +724,7 @@ export default function BookingComponent() {
   /* ── Success screen ── */
   if (success) {
     const planText = resolution?.plan
-      ?.map(({ service, stylist, startMin }, i) => `${i + 1}. ${service.name} with ${stylist.name} at ${fmtTime(minsToHm(startMin))}`)
+      ?.map(({ service, stylist, startMin }, i) => `${i + 1}. ${svcLabel(service)} with ${stylist.name} at ${fmtTime(minsToHm(startMin))}`)
       .join('\n')
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
@@ -988,6 +993,9 @@ export default function BookingComponent() {
                           <div className="flex items-center justify-between mb-3">
                             <span className="text-cream font-medium text-sm flex items-center gap-2">
                               <Scissors className="w-4 h-4 text-gold-400" /> {svc.name}
+                              {svc.kid_gender && (
+                                <span className={`gender-chip ${svc.kid_gender}`}>{svc.kid_gender}</span>
+                              )}
                             </span>
                             <span className="text-gold-400 text-xs">₹{svc.price}</span>
                           </div>
@@ -1116,7 +1124,7 @@ export default function BookingComponent() {
                       <p className="text-gold-400 text-xs uppercase tracking-widest mb-1">Your visit</p>
                       {resolution.plan.map(({ service, stylist, startMin, endMin }, i) => (
                         <div key={service.id} className="flex items-center justify-between text-sm">
-                          <span className="text-cream">{i + 1}. {service.name}</span>
+                          <span className="text-cream">{i + 1}. {svcLabel(service)}</span>
                           <span className="text-emerald-300">
                             {stylist.name} · {fmtTime(minsToHm(startMin))}–{fmtTime(minsToHm(endMin))}
                           </span>
@@ -1143,7 +1151,7 @@ export default function BookingComponent() {
                     </div>
                     {picked.map((svc, i) => (
                       <div key={svc.id} className="flex justify-between items-center border-b border-emerald-800 pb-3">
-                        <span className="text-emerald-300 text-sm">{i + 1}. {svc.name}</span>
+                        <span className="text-emerald-300 text-sm">{i + 1}. {svcLabel(svc)}</span>
                         <span className="text-cream font-medium text-sm">₹{svc.price}</span>
                       </div>
                     ))}

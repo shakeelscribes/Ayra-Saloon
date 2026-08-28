@@ -12,6 +12,10 @@ const statusConfig = {
   cancelled:           { label: 'Cancelled',           color: 'text-red-400',     bg: 'bg-red-900/20 border-red-800',            Icon: XCircle },
 }
 
+/* Kids services come in Boy/Girl variants that share one name — append the
+   variant wherever a slot's service is listed as plain text. */
+const svcLabel = (svc) => (svc?.kid_gender ? `${svc.name} (${svc.kid_gender[0].toUpperCase()}${svc.kid_gender.slice(1)})` : svc?.name)
+
 function BookingCard({ booking, onCancel, onRespond }) {
   const cfg = statusConfig[booking.status] || statusConfig.confirmed
   const StatusIcon = cfg.Icon
@@ -41,7 +45,7 @@ const fmtTime = (t) => {
             <h3 className="font-display text-lg text-cream">
               {slots.length > 1
                 ? `${slots.length} services`
-                : (slots[0]?.service?.name || booking.service?.name || 'Booking')}
+                : (svcLabel(slots[0]?.service) || booking.service?.name || 'Booking')}
             </h3>
           </div>
           <div className="flex flex-wrap gap-4 mt-3 text-sm text-emerald-300">
@@ -58,7 +62,7 @@ const fmtTime = (t) => {
               {slots.map(sl => (
                 <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
                   <span className="text-gold-400 font-semibold w-14">{fmtTime(sl.time_slot)}</span>
-                  <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                  <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                   <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                   <span className="text-emerald-300 ml-auto">₹{sl.service?.price}</span>
                 </div>

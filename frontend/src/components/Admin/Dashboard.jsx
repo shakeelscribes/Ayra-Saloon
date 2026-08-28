@@ -162,6 +162,10 @@ export default function AdminDashboard() {
   // Multi-slot shape: a booking holds N slots (one per service). Fall back to
   // the legacy singular fields for old snapshot bookings.
   const bookingSlots = (b) => (b.slots?.length ? b.slots : [])
+
+  // Kids services come in Boy/Girl variants that share one name — append the
+  // variant wherever a slot's service is listed as plain text.
+  const svcLabel = (svc) => (svc?.kid_gender ? `${svc.name} (${svc.kid_gender[0].toUpperCase()}${svc.kid_gender.slice(1)})` : svc?.name)
   const firstSlotTime = (b) => b.slots?.[0]?.time_slot || b.time_slot || ''
   const bookingTotal = (b) =>
     b.slots?.length
@@ -330,7 +334,7 @@ export default function AdminDashboard() {
                         {bookingSlots(b).map(sl => (
                           <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
                             <span className="text-amber-400 font-semibold w-16">{fmtTime(sl.time_slot)}</span>
-                            <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                            <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                             <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                             <span className="text-emerald-300">₹{sl.service?.price}</span>
                           </div>
@@ -402,7 +406,7 @@ export default function AdminDashboard() {
                         {bookingSlots(b).map(sl => (
                           <div key={sl.id} className="flex flex-wrap items-center gap-3 text-xs">
                             <span className="text-violet-400 font-semibold w-16">{fmtTime(sl.time_slot)}</span>
-                            <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                            <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                             <span className="flex items-center gap-1 text-emerald-300"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                           </div>
                         ))}
@@ -461,7 +465,7 @@ export default function AdminDashboard() {
                       {bookingSlots(b).map(sl => (
                         <div key={sl.id} className="flex flex-wrap items-center gap-3 text-sm border-t border-emerald-800/60 pt-1.5">
                           <span className="text-gold-400 font-semibold text-xs w-16">{fmtTime(sl.time_slot)}</span>
-                          <span className="text-cream">{sl.service?.name || 'Service'}</span>
+                          <span className="text-cream">{svcLabel(sl.service) || 'Service'}</span>
                           <span className="flex items-center gap-1 text-emerald-300 text-xs"><Scissors className="w-3 h-3" />{sl.stylist?.name || '—'}</span>
                           <span className="text-emerald-300 text-xs ml-auto">₹{sl.service?.price}</span>
                         </div>

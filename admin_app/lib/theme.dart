@@ -424,7 +424,9 @@ String fmtTime(String? t) {
 
 /// ISO timestamp → "29 Aug, 4:30 PM"
 String fmtDateTime(String? iso) {
-  final dt = iso == null ? null : DateTime.tryParse(iso);
+  // API timestamps are UTC (Z-suffixed); convert to the device's local time
+  // before formatting. No-op for suffix-less strings (defensive).
+  final dt = iso == null ? null : DateTime.tryParse(iso)?.toLocal();
   if (dt == null) return '—';
   const months = [
     'Jan',

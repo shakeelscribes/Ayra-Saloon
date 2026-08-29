@@ -70,6 +70,18 @@ class BookingCreate(BaseModel):
     time_slot: str     # "HH:MM" — start slot
     notes: Optional[str] = None
 
+# Admin-only body: the salon enters a booking on behalf of a walk-in customer
+# who may not have an account (or internet). The customer is found-or-created
+# by phone; confirm_now=False keeps the normal approval flow instead.
+class AdminBookingCreate(BaseModel):
+    customer_name: str
+    phone: str
+    items: List[BookingItem]
+    date: str          # "YYYY-MM-DD"
+    time_slot: str     # "HH:MM" — start slot
+    notes: Optional[str] = None
+    confirm_now: bool = True
+
 class BookingSlotOut(BaseModel):
     id: PydanticObjectId
     service_id: PydanticObjectId
@@ -98,6 +110,7 @@ class BookingOut(BaseModel):
     slots: List[BookingSlotOut] = []
     audience: str = "unisex"
     status: str
+    source: str = "online"
     proposed_date: Optional[str] = None
     proposed_time_slot: Optional[str] = None
     history: List[dict] = []
@@ -133,6 +146,7 @@ class NotificationOut(BaseModel):
     kind: str
     rendered_text: str
     deep_link: str
+    delivery_status: str = "pending"   # pending | manual_sent | auto_sent | failed
     sent_at: Optional[datetime] = None
     created_at: datetime
     model_config = {"from_attributes": True}

@@ -57,7 +57,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# anchored: bare "lib/" also ignored Flutter's admin_app/lib and frontend/src/lib source
+/lib/
 lib64/
 parts/
 sdist/
@@ -96,6 +97,9 @@ start-backend.bat
 start-frontend.bat
 
 .agents
+
+# Local agent tooling config (machine-specific paths)
+opencode.json
 
 skills-lock.json
 

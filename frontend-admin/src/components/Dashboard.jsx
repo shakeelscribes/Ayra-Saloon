@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, Phone, X } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, Phone, X, Plus, LogOut } from 'lucide-react'
 import toast from 'react-hot-toast'
-import client from '../../api/client'
+import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 /* Salon day grid — mirrors backend/routes/availability.py ALL_SLOTS. */
 const ALL_SLOTS = Array.from({ length: 11 }, (_, i) => `${10 + i}:00`)
@@ -44,7 +46,9 @@ const telHref = (phone) => {
   return `tel:+${digits}`
 }
 
-export default function AdminDashboard() {
+export default function Dashboard() {
+  const { logout } = useAuth()
+  const navigate = useNavigate()
   const [bookings, setBookings] = useState([])
   const [pending, setPending] = useState([])
   const [awaiting, setAwaiting] = useState([])
@@ -144,6 +148,11 @@ export default function AdminDashboard() {
     } catch {
       toast.error('Could not mark as sent')
     }
+  }
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
   }
 
   const confirmed = bookings.filter(b => b.status === 'confirmed')
@@ -260,13 +269,27 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen pt-24 pb-16 px-6">
+    <div className="min-h-screen pt-10 pb-16 px-6">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-2">Admin Panel</p>
-          <h1 className="font-display text-4xl text-cream">Daily Dashboard</h1>
-          <div className="w-20 h-0.5 mt-4" style={{ background: 'linear-gradient(90deg, #c9a84c, transparent)' }} />
+        <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-2">Admin Panel</p>
+            <h1 className="font-display text-4xl text-cream">Daily Dashboard</h1>
+            <div className="w-20 h-0.5 mt-4" style={{ background: 'linear-gradient(90deg, #c9a84c, transparent)' }} />
+          </div>
+          <div className="flex items-center gap-3">
+            <Link to="/new-appointment" className="btn-gold !px-5 !py-2.5 text-sm inline-flex items-center gap-2">
+              <Plus className="w-4 h-4" /> New Appointment
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="btn-outline !px-5 !py-2.5 text-sm inline-flex items-center gap-2"
+              title="Sign out of the staff panel"
+            >
+              <LogOut className="w-4 h-4" /> Logout
+            </button>
+          </div>
         </div>
 
         {/* Stats */}

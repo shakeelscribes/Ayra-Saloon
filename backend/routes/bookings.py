@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from typing import List
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 from beanie import PydanticObjectId
 import models, schemas
 from auth import get_current_user, get_current_admin
@@ -68,6 +67,7 @@ async def serialize_booking(booking: models.Booking) -> schemas.BookingOut:
             ) for s in slots
         ],
         audience=booking.audience,
+        source=booking.source or "online",
         proposed_date=booking.proposed_date,
         proposed_time_slot=booking.proposed_time_slot,
         history=booking.history,
@@ -90,13 +90,14 @@ def write_history(booking: models.Booking, actor: str, action: str, from_status,
 
 
 async def write_notification(booking: models.Booking, user: models.User, kind: str, text: str):
+    from services.whatsapp import build_deep_link, send
     phone = (user.phone or "").strip()
-    deep_link = ""
-    if phone:
-        digits = "".join(ch for ch in phone if ch.isdigit())
-        # quote() — service names like "Hair Wash & Blowout" contain characters
-        # that would break the wa.me query string if only spaces were encoded.
-        deep_link = f"https://wa.me/{digits}?text={quote(text)}"
+    deep_link = build_deep_link(phone, text) if phone else ""
+    # Manual mode today: send() reports "pending" and the admin completes the
+    # delivery from the staff panel. When the Cloud API lands, auto-sends are
+    # stamped here without touching any route.
+    result = await send(phone, text) if phone else {"status": "failed", "error": "no phone number on file"}
+    delivery_status = result.get("status", "pending")
     await models.Notification(
         booking_id=booking.id,
         user_id=user.id,
@@ -104,39 +105,42 @@ async def write_notification(booking: models.Booking, user: models.User, kind: s
         kind=kind,
         rendered_text=text,
         deep_link=deep_link,
+        delivery_status=delivery_status,
+        sent_at=_now() if delivery_status == "auto_sent" else None,
         created_at=_now(),
     ).insert()
 
 
-@router.post("/", response_model=schemas.BookingOut, status_code=201)
-@limiter.limit("5/minute")
-async def create_booking(
-    request: Request,
-    booking_data: schemas.BookingCreate,
-    current_user: models.User = Depends(get_current_user),
-):
-    # ── Resolve items: v2 multi-service or PR-1 legacy single-service body ────
-    if booking_data.items:
-        items = booking_data.items
-    elif booking_data.service_id and booking_data.stylist_id:
-        items = [schemas.BookingItem(service_id=booking_data.service_id,
-                                     stylist_id=booking_data.stylist_id)]
-    else:
-        raise HTTPException(status_code=422, detail="Provide items[] or service_id + stylist_id.")
+async def _resolve_and_check(items, date, time_slot, customer_id, grace_mins=0):
+    """Shared validation for customer and admin (walk-in) booking creation.
 
-    if booking_data.time_slot not in ALL_SLOTS:
+    Resolves every item's service + stylist, enforces the freshness guard
+    (IST), category/audience rules, closing-time fit and conflict checks.
+    `grace_mins` lets the admin seat a walk-in in the current hour slot while
+    up to that many minutes of it remain.
+
+    Returns (resolved, windows, total_mins, audience):
+      resolved — [(service, stylist), ...] in booking order
+      windows  — [(service, stylist, start_min, end_min), ...] back-to-back
+    """
+    if time_slot not in ALL_SLOTS:
         raise HTTPException(status_code=400, detail="Invalid time slot.")
 
     # ── Freshness guard (IST): no bookings in the past ────────────────────────
     now_ist = _ist_now()
     today_ist = now_ist.date().isoformat()
-    if booking_data.date < today_ist:
+    if date < today_ist:
         raise HTTPException(status_code=400, detail="That date has already passed.")
-    if booking_data.date == today_ist and booking_data.time_slot <= now_ist.strftime("%H:%M"):
-        raise HTTPException(
-            status_code=400,
-            detail="That time has already passed today. Pick a later slot.",
-        )
+    if date == today_ist and time_slot <= now_ist.strftime("%H:%M"):
+        # Admin grace: a walk-in can be seated in the current hour slot while
+        # up to `grace_mins` of it remain.
+        slot_min = hm_to_mins(time_slot)
+        now_min = now_ist.hour * 60 + now_ist.minute
+        if not (grace_mins > 0 and 0 <= now_min - slot_min <= grace_mins):
+            raise HTTPException(
+                status_code=400,
+                detail="That time has already passed today. Pick a later slot.",
+            )
 
     # ── Validate + resolve every item (service, stylist) ──────────────────────
     resolved = []
@@ -187,7 +191,7 @@ async def create_booking(
     # Whole hourly slots, 30-min grace past each hour boundary (stylists are
     # experienced): 140 min → 2 slots, 150 → 2, 151 → 3.
     n_slots = slots_needed(total_mins)
-    start_idx = ALL_SLOTS.index(booking_data.time_slot)
+    start_idx = ALL_SLOTS.index(time_slot)
     if start_idx + n_slots > len(ALL_SLOTS):
         raise HTTPException(
             status_code=400,
@@ -196,7 +200,7 @@ async def create_booking(
         )
 
     # ── Real back-to-back windows: each service starts where the last ends ────
-    cursor = hm_to_mins(booking_data.time_slot)
+    cursor = hm_to_mins(time_slot)
     windows = []
     for service, stylist in resolved:
         dur = service.duration_mins or 60
@@ -206,20 +210,20 @@ async def create_booking(
     # ── Conflict checks (interval overlap): stylist per service window,
     #    customer for the whole visit ─────────────────────────────────────────
     day_rows = await models.BookingSlot.find(
-        models.BookingSlot.date == booking_data.date
+        models.BookingSlot.date == date
     ).to_list()
-    visit_start = hm_to_mins(booking_data.time_slot)
+    visit_start = hm_to_mins(time_slot)
     visit_end = visit_start + total_mins
     for row in day_rows:
         row_start = hm_to_mins(row.time_slot)
         row_end = row_start + (row.duration_mins or 60)
         if not intervals_overlap(visit_start, visit_end, row_start, row_end):
             continue
-        if row.user_id == current_user.id:
+        if row.user_id == customer_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(f"You already have a booking overlapping this time "
-                        f"({mins_to_hm(row_start)}–{mins_to_hm(row_end)}) on {booking_data.date}."),
+                        f"({mins_to_hm(row_start)}–{mins_to_hm(row_end)}) on {date}."),
             )
     for service, stylist, ws, we in windows:
         for row in day_rows:
@@ -231,8 +235,30 @@ async def create_booking(
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(f"{stylist.name} is already booked "
-                            f"{mins_to_hm(row_start)}–{mins_to_hm(row_end)} on {booking_data.date}."),
+                            f"{mins_to_hm(row_start)}–{mins_to_hm(row_end)} on {date}."),
                 )
+
+    return resolved, windows, total_mins, audience
+
+
+@router.post("/", response_model=schemas.BookingOut, status_code=201)
+@limiter.limit("5/minute")
+async def create_booking(
+    request: Request,
+    booking_data: schemas.BookingCreate,
+    current_user: models.User = Depends(get_current_user),
+):
+    # ── Resolve items: v2 multi-service or PR-1 legacy single-service body ────
+    if booking_data.items:
+        items = booking_data.items
+    elif booking_data.service_id and booking_data.stylist_id:
+        items = [schemas.BookingItem(service_id=booking_data.service_id,
+                                     stylist_id=booking_data.stylist_id)]
+    else:
+        raise HTTPException(status_code=422, detail="Provide items[] or service_id + stylist_id.")
+
+    resolved, windows, total_mins, audience = await _resolve_and_check(
+        items, booking_data.date, booking_data.time_slot, current_user.id)
 
     # ── Create booking (soft-hold) + slot rows ────────────────────────────────
     primary_stylist = resolved[0][1]
@@ -244,6 +270,7 @@ async def create_booking(
         date=booking_data.date,
         time_slot=booking_data.time_slot,   # snapshot — survives slot-row deletion
         notes=booking_data.notes,
+        source="online",
         status=models.BookingStatus.pending,   # soft-hold: awaiting admin approval
         history=[{
             "ts": _now().isoformat(),
@@ -275,6 +302,97 @@ async def create_booking(
         f"on {booking_data.date} at {booking_data.time_slot} is received and awaiting "
         f"confirmation from Ayra Saloon.",
     )
+
+    return await serialize_booking(booking)
+
+
+# ── Admin: walk-in booking — salon enters it on the customer's behalf ─────────
+@router.post("/admin/create", response_model=schemas.BookingOut, status_code=201)
+async def admin_create_booking(
+    data: schemas.AdminBookingCreate,
+    _admin: models.User = Depends(get_current_admin),
+):
+    import re
+    from auth import get_password_hash
+
+    digits = "".join(ch for ch in (data.phone or "") if ch.isdigit())
+    if len(digits) < 10:
+        raise HTTPException(status_code=400, detail="A valid 10-digit phone number is required.")
+    tail = digits[-10:]
+
+    # Find-or-create the customer by phone. Stored phones vary in format
+    # ("98765 43210", "+91…"), so match on the trailing 10 digits.
+    user = await models.User.find_one({"phone": {"$regex": re.escape(tail) + "$"}})
+    created_user = False
+    if not user:
+        # Synthetic email keeps the account claimable later; the password is
+        # a random secret the customer was never given — effectively unusable.
+        import secrets
+        user = models.User(
+            name=data.customer_name.strip(),
+            email=f"walkin.{tail}@ayrasaloon.local",
+            hashed_password=get_password_hash(secrets.token_urlsafe(24)),
+            phone=("+91" + tail) if len(digits) == 10 else data.phone.strip(),
+        )
+        await user.insert()
+        created_user = True
+
+    # Walk-ins may be seated in the current hour slot while up to 30 min of
+    # it remain — mirrors the salon's 30-min grace convention.
+    resolved, windows, total_mins, audience = await _resolve_and_check(
+        data.items, data.date, data.time_slot, user.id, grace_mins=30)
+
+    status_value = (models.BookingStatus.confirmed if data.confirm_now
+                    else models.BookingStatus.pending)
+    primary_stylist = resolved[0][1]
+    booking = models.Booking(
+        user_id=user.id,
+        stylist_id=primary_stylist.id,
+        audience=audience or "unisex",
+        services=[service.id for service, _ in resolved],
+        date=data.date,
+        time_slot=data.time_slot,
+        notes=data.notes,
+        source="walk_in",
+        status=status_value,
+        history=[{
+            "ts": _now().isoformat(),
+            "actor": "admin",
+            "action": "created_walk_in",
+            "from_status": None,
+            "to_status": status_value.value if isinstance(status_value, models.BookingStatus) else status_value,
+            "payload": {"by_admin": _admin.email, "created_user": created_user},
+        }],
+    )
+    await booking.insert()
+
+    for i, (service, stylist, ws, we) in enumerate(windows):
+        await models.BookingSlot(
+            booking_id=booking.id,
+            user_id=user.id,
+            service_id=service.id,
+            stylist_id=stylist.id,
+            sequence=i,
+            date=data.date,
+            time_slot=mins_to_hm(ws),
+            duration_mins=service.duration_mins or 60,
+        ).insert()
+
+    service_names = " + ".join(s.name for s, _, _, _ in windows)
+    stylist_names = " + ".join(dict.fromkeys(s.name for _, s, _, _ in windows))
+    if data.confirm_now:
+        await write_notification(
+            booking, user, "booking_confirmed",
+            f"Hi {user.name}! Your appointment ({service_names}) with {stylist_names} "
+            f"on {data.date} at {data.time_slot} is confirmed. See you at Ayra Saloon!",
+        )
+    else:
+        await write_notification(
+            booking, user, "booking_pending",
+            f"Hi {user.name}! Your request ({service_names}) with {stylist_names} "
+            f"on {data.date} at {data.time_slot} is received and awaiting "
+            f"confirmation from Ayra Saloon.",
+        )
 
     return await serialize_booking(booking)
 

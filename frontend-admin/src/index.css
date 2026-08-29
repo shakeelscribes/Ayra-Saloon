@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  :root {
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ring: #c9a84c;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  body {
+    @apply font-body antialiased;
+    background: #0d1f17;
+    color: #faf6ee;
+    /* Body-copy craft: Jost reads best at weight 400 on dark bg,
+       slightly opened tracking, relaxed leading */
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0d1f17;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c9a84c;
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  /* Gold divider */
+  .gold-divider {
+    @apply w-20 h-0.5 mx-auto my-4;
+    background: linear-gradient(90deg, transparent, #c9a84c, transparent);
+  }
+
+  /* Glass card */
+  .glass-card {
+    background: rgba(26, 58, 42, 0.5);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(201, 168, 76, 0.2);
+    @apply rounded-2xl;
+  }
+
+  /* Gold button — exact properties, never transition:all; press feedback at 160ms */
+  .btn-gold {
+    background: linear-gradient(135deg, #c9a84c 0%, #f0d080 50%, #a8862a 100%);
+    background-size: 200% auto;
+    @apply text-emerald-950 font-semibold px-8 py-3 rounded-full;
+    transition:
+      background-position 300ms ease,
+      box-shadow 300ms ease,
+      transform 160ms ease-out;
+  }
+  .btn-gold:hover {
+    background-position: right center;
+    box-shadow: 0 4px 24px rgba(201, 168, 76, 0.25);
+  }
+  .btn-gold:active {
+    transform: scale(0.97);
+  }
+
+  /* Keyboard focus — visible gold ring on every primary action */
+  .btn-gold:focus-visible,
+  .btn-outline:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+
+  /* Outline gold button */
+  .btn-outline {
+    @apply border border-gold-500 text-gold-400 px-8 py-3 rounded-full font-medium;
+    transition:
+      background-color 200ms ease,
+      color 200ms ease,
+      transform 160ms ease-out;
+  }
+  .btn-outline:hover {
+    @apply bg-gold-500 text-emerald-950;
+  }
+  .btn-outline:active {
+    transform: scale(0.97);
+  }
+
+  /* Form inputs */
+  .luxury-input {
+    @apply w-full bg-emerald-900 border border-emerald-700 text-cream px-4 py-3 rounded-xl
+           focus:outline-none focus:border-gold-500 transition-colors duration-200 placeholder-emerald-600;
+  }
+}

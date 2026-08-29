@@ -19,7 +19,7 @@ export default function Login() {
     try {
       const user = await login(form.email, form.password)
       toast.success(`Welcome back, ${user.name}!`)
-      navigate(user.is_admin ? '/admin' : '/')
+      navigate('/')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Login failed')
     } finally {
@@ -104,13 +104,6 @@ export default function Login() {
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
-
-          {/* Admin hint */}
-          <div className="mt-5 p-3 rounded-xl bg-emerald-900/50 border border-emerald-800">
-            <p className="text-emerald-300 text-xs text-center">
-              Admin: <span className="text-gold-400">admin@ayrasaloon.com</span> / <span className="text-gold-400">admin123</span>
-            </p>
-          </div>
 
           <p className="text-center text-emerald-300 text-sm mt-6">
             Don't have an account?{' '}

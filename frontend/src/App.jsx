@@ -21,19 +21,11 @@ import ProfilePage from './pages/ProfilePage'
 import Login from './components/Auth/Login'
 import Signup from './components/Auth/Signup'
 import MyAppointments from './components/MyAppointments'
-import AdminDashboard from './components/Admin/Dashboard'
 
 // ── Protected route wrappers ──────────────────────────────────────────────────
 function PrivateRoute({ children }) {
   const { user } = useAuth()
   return user ? children : <Navigate to="/login" replace />
-}
-
-function AdminRoute({ children }) {
-  const { user } = useAuth()
-  if (!user) return <Navigate to="/login" replace />
-  if (!user.is_admin) return <Navigate to="/" replace />
-  return children
 }
 
 // ── Landing Page ──────────────────────────────────────────────────────────────
@@ -141,10 +133,6 @@ function AppShell() {
         <Route
           path="/profile"
           element={<PrivateRoute><ProfilePage /></PrivateRoute>}
-        />
-        <Route
-          path="/admin"
-          element={<AdminRoute><AdminDashboard /></AdminRoute>}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

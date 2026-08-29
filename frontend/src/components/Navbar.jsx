@@ -67,11 +67,6 @@ export default function Navbar() {
 
           {user ? (
             <div className="flex items-center gap-5">
-              {user.is_admin && (
-                <Link to="/admin" className={linkCls('/admin', 'text-gold-400/90')}>
-                  Dashboard
-                </Link>
-              )}
               <Link to="/my-appointments" className={linkCls('/my-appointments', 'text-cream/70')}>
                 Bookings
               </Link>
@@ -114,11 +109,6 @@ export default function Navbar() {
           ))}
           {user ? (
             <>
-              {user.is_admin && (
-                <Link to="/admin" onClick={() => setOpen(false)} className="text-gold-400 font-medium">
-                  Dashboard
-                </Link>
-              )}
               <Link to="/my-appointments" onClick={() => setOpen(false)} className="text-cream/80 hover:text-gold-400">
                 Bookings
               </Link>

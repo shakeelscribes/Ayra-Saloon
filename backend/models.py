@@ -109,6 +109,7 @@ class Booking(Document):
                                                 # bookings still render in history views
     notes: Optional[str] = None
     status: BookingStatus = BookingStatus.pending
+    source: str = "online"                      # "online" | "walk_in" — who entered it
 
     # Admin reschedule proposal (awaiting_reschedule state)
     proposed_date: Optional[str] = None
@@ -135,8 +136,10 @@ class Notification(Document):
                                         # reschedule_confirmed | booking_declined | booking_cancelled
     rendered_text: str = ""
     deep_link: str = ""                 # https://wa.me/<phone>?text=<encoded>
+    # pending | manual_sent | auto_sent | failed — see services/whatsapp.py
+    delivery_status: str = "pending"
     created_at: datetime = Field(default_factory=_now)
-    sent_at: Optional[datetime] = None  # stamped when admin clicks send
+    sent_at: Optional[datetime] = None  # stamped when sent (manual click or auto)
 
     class Settings:
         name = "notifications"

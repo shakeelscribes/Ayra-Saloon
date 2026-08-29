@@ -27,7 +27,10 @@ def get_safe_mongodb_url(url: str) -> str:
     return url
 
 SAFE_DATABASE_URL = get_safe_mongodb_url(DATABASE_URL)
-client = AsyncIOMotorClient(SAFE_DATABASE_URL)
+# tz_aware=True: pymongo returns UTC-aware datetimes so pydantic serializes
+# them WITH a timezone suffix. Without it the API emits naive UTC strings,
+# which every client misinterprets as local time (notifications showed raw UTC).
+client = AsyncIOMotorClient(SAFE_DATABASE_URL, tz_aware=True)
 # Extract db name from connection string (or use default)
 db_name = DATABASE_URL.split("/")[-1].split("?")[0] or "ayra_saloon"
 database = client[db_name]

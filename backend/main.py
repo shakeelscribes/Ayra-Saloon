@@ -5,6 +5,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import asyncio
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from database import init_db
 from limiter import limiter
@@ -423,14 +424,19 @@ async def seed_data():
         if missing_ts:
             print(f"Backfilled time_slot snapshot on {len(missing_ts)} booking(s).", flush=True)
 
-        # Seed admin user
+        # Seed admin user — password is never hardcoded in the repo (it is
+        # public): ADMIN_SEED_PASSWORD env override, else random, printed
+        # once to the server log on first boot.
         if await models.User.find(models.User.is_admin == True).count() == 0:
+            seed_pw = os.getenv("ADMIN_SEED_PASSWORD") or secrets.token_urlsafe(12)
             admin = models.User(
-                name="Admin",                email="admin@ayrasaloon.com",
-                hashed_password=get_password_hash("admin123"),
+                name="Admin",
+                email="admin@ayrasaloon.com",
+                hashed_password=get_password_hash(seed_pw),
                 is_admin=True,
             )
             await admin.insert()
+            print(f"Seeded admin admin@ayrasaloon.com with initial password: {seed_pw}", flush=True)
     except Exception as e:
         print(f"Error seeding data: {e}", flush=True)
 

@@ -35,5 +35,6 @@ async def mark_sent(
         raise HTTPException(status_code=404, detail="Notification not found")
     from datetime import datetime, timezone
     notification.sent_at = datetime.now(timezone.utc)
+    notification.delivery_status = "manual_sent"
     await notification.save()
     return notification

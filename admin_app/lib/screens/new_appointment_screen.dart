@@ -40,6 +40,9 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
   Map<String, List<m.BusyInterval>> _avail = {};
   bool _availLoading = false;
   bool _confirmNow = true;
+  // Walk-in override: seat a customer in a started/passed slot today.
+  // Waives only the 10-min booking cutoff — never conflicts or past dates.
+  bool _ignoreCutoff = false;
   bool _saving = false;
 
   @override
@@ -83,6 +86,13 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
   m.ServiceModel? get _pickedService {
     for (final s in _services) {
       if (s.id == _pickServiceId) return s;
+    }
+    return null;
+  }
+
+  m.StylistModel? get _pickedStylist {
+    for (final s in _stylists) {
+      if (s.id == _pickStylistId) return s;
     }
     return null;
   }
@@ -265,6 +275,7 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
         'time_slot': _start,
         'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
         'confirm_now': _confirmNow,
+        'ignore_cutoff': _ignoreCutoff,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -319,15 +330,17 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
         _itemStylistIds.isNotEmpty &&
         _itemStylistIds.every((id) => _avail.containsKey(id));
 
-    // Grace-aware past slots for today — mirrors the backend freshness guard
-    // (bookings.py): a slot stays bookable today while up to 30 min of it
-    // remain; beyond that the backend would 400, so disable it upfront.
+    // 10-min booking cutoff for today — mirrors the backend freshness guard
+    // (bookings.py): a slot is bookable until 10 minutes before it starts
+    // (the 10:00 slot closes at 09:50). With the walk-in override ON,
+    // started/passed slots stay selectable (backend: ignore_cutoff=true).
     final isToday = _dateStr == istToday();
     final nowIst = DateTime.now().toUtc().add(
       const Duration(hours: 5, minutes: 30),
     );
     final nowMin = nowIst.hour * 60 + nowIst.minute;
-    bool isPassed(String t) => isToday && nowMin - toMins(t) > 30;
+    bool isPassed(String t) =>
+        isToday && !_ignoreCutoff && toMins(t) - nowMin < 10;
 
     // "Struck-through times are already booked" helper — shown when at least
     // one slot is booked out (as opposed to not fitting before closing).
@@ -493,10 +506,11 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    OutlineButton(
-                      label: 'Add service',
-                      icon: Icons.add,
-                      onPressed: _addItem,
+                    _AddServiceButton(
+                      pickedService: _pickedService,
+                      pickedStylist: _pickedStylist,
+                      onOpenPicker: _openPicker,
+                      onConfirm: _addItem,
                     ),
                     const SizedBox(height: 12),
                     if (_items.isEmpty)
@@ -666,6 +680,10 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                               allSlots.indexOf(t) + _blockSlots <=
                               allSlots.length;
                           final passed = isPassed(t);
+                          // Late = past the 10-min cutoff but seatable via
+                          // the walk-in override.
+                          final late =
+                              !passed && isToday && toMins(t) - nowMin < 10;
                           // Strike-through = already booked; dimmed without
                           // strike = won't fit before closing / already passed.
                           final taken =
@@ -686,6 +704,8 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                                 border: Border.all(
                                   color: selected
                                       ? gold500
+                                      : selectable && late
+                                      ? amber400
                                       : selectable
                                       ? emerald700
                                       : emerald800.withValues(alpha: 0.5),
@@ -698,6 +718,8 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                                   fontSize: 11,
                                   color: selected
                                       ? emerald950
+                                      : selectable && late
+                                      ? amber400
                                       : selectable
                                       ? cream
                                       : emerald700,
@@ -806,6 +828,29 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                     Row(
                       children: [
                         Checkbox(
+                          value: _ignoreCutoff,
+                          activeColor: gold500,
+                          checkColor: emerald950,
+                          onChanged: (v) =>
+                              setState(() => _ignoreCutoff = v ?? false),
+                        ),
+                        const Icon(
+                          Icons.schedule,
+                          size: 16,
+                          color: amber400,
+                        ),
+                        const SizedBox(width: 6),
+                        const Expanded(
+                          child: Text(
+                            'Walk-in override (allow booking a slot that already started today)',
+                            style: TextStyle(color: cream, fontSize: 12.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Checkbox(
                           value: _confirmNow,
                           activeColor: gold500,
                           checkColor: emerald950,
@@ -861,4 +906,118 @@ class _Item {
   final m.ServiceModel service;
   final m.StylistModel stylist;
   _Item({required this.service, required this.stylist});
+}
+
+/// The Services action button — three states that morph in place so the
+/// label always names the action:
+///  · nothing picked  → outline "Add service" (opens the picker)
+///  · service, no stylist → disabled "Now pick a stylist" nudge
+///  · both picked     → full-width gold "Confirm `<service>` · `<stylist>`"
+///
+/// The gold confirm state is the explicit "done" step — tapping it no
+/// longer reads like adding *another* service. After confirming, the
+/// picks reset and the button returns to "Add service" for the next one.
+class _AddServiceButton extends StatelessWidget {
+  final m.ServiceModel? pickedService;
+  final m.StylistModel? pickedStylist;
+  final VoidCallback onOpenPicker;
+  final VoidCallback onConfirm;
+
+  const _AddServiceButton({
+    required this.pickedService,
+    required this.pickedStylist,
+    required this.onOpenPicker,
+    required this.onConfirm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final Widget child;
+    if (pickedService == null) {
+      child = OutlineButton(
+        key: const ValueKey('svc_action_idle'),
+        label: 'Add service',
+        icon: Icons.add,
+        onPressed: onOpenPicker,
+      );
+    } else if (pickedStylist == null) {
+      child = OutlineButton(
+        key: const ValueKey('svc_action_need_stylist'),
+        label: 'Now pick a stylist',
+        icon: Icons.person_outline,
+        onPressed: null,
+      );
+    } else {
+      child = _ConfirmServiceButton(
+        key: const ValueKey('svc_action_confirm'),
+        label: 'Confirm ${pickedService!.label} · ${pickedStylist!.name}',
+        onPressed: onConfirm,
+      );
+    }
+    return AnimatedSwitcher(
+      duration: reduced ? Duration.zero : const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.05),
+            end: Offset.zero,
+          ).animate(anim),
+          child: child,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Full-width gold confirm pill — the "done" step. Ellipsizes long
+/// service names instead of overflowing.
+class _ConfirmServiceButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onPressed;
+  const _ConfirmServiceButton({super.key, required this.label, this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      child: Opacity(
+        opacity: onPressed == null ? 0.5 : 1,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: goldGradient,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: emerald950,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: const StadiumBorder(),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_outline, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

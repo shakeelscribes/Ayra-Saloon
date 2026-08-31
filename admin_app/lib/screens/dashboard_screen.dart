@@ -1044,6 +1044,16 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
         _stylistIds.every((id) => _avail.containsKey(id));
     final block = slotsNeededFor(_rows.map((r) => r.durationMins).toList());
 
+    // 10-min booking cutoff for today — mirrors the backend reschedule guard
+    // (bookings.py). Reschedule is strictly future-facing: no walk-in
+    // override here (started-slot seating belongs to New Appointment).
+    final isToday = _dateStr == istToday();
+    final nowIst = DateTime.now().toUtc().add(
+      const Duration(hours: 5, minutes: 30),
+    );
+    final nowMin = nowIst.hour * 60 + nowIst.minute;
+    bool closedByCutoff(String t) => isToday && toMins(t) - nowMin < 10;
+
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -1153,7 +1163,8 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
                   spacing: 8,
                   runSpacing: 8,
                   children: allSlots.map((t) {
-                    final isViable = viable.contains(t);
+                    final isViable =
+                        viable.contains(t) && !closedByCutoff(t);
                     final selected = _start == t;
                     return InkWell(
                       onTap: isViable ? () => setState(() => _start = t) : null,

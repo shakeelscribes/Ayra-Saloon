@@ -111,6 +111,13 @@ class Booking(Document):
     status: BookingStatus = BookingStatus.pending
     source: str = "online"                      # "online" | "walk_in" — who entered it
 
+    # Calendar invite sync (email .ics). UID stays constant for the booking's
+    # whole life; SEQUENCE increments on every re-send so the customer's
+    # calendar treats the new email as an UPDATE of the same event (and
+    # METHOD:CANCEL as its deletion).
+    calendar_uid: Optional[str] = None
+    calendar_sequence: int = 0
+
     # Admin reschedule proposal (awaiting_reschedule state)
     proposed_date: Optional[str] = None
     proposed_time_slot: Optional[str] = None

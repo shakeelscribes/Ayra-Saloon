@@ -84,6 +84,10 @@ class AdminBookingCreate(BaseModel):
     # Walk-in override: seat a customer in a started/passed slot today.
     # Waives only the 10-min booking cutoff — never conflicts or past dates.
     ignore_cutoff: bool = False
+    # Optional email for the calendar invite. On a NEW walk-in customer it
+    # becomes their account email (claimable later); on a MATCHED customer the
+    # account email is never overwritten — the invite is just sent here.
+    customer_email: Optional[str] = None
 
 class BookingSlotOut(BaseModel):
     id: PydanticObjectId

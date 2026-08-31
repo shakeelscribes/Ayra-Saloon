@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 const WHATSAPP_URL =
   'https://wa.me/918270606750?text=' +
-  encodeURIComponent("Hi Ayra Saloon! I'd like to book an appointment.")
+  encodeURIComponent("Hi Ayra Unisex Salon! I'd like to book an appointment.")
 
 /** Official WhatsApp glyph (Simple Icons, CC0). Lucide has no WA mark. */
 export function WhatsAppIcon({ className }) {
@@ -37,7 +37,7 @@ export default function WhatsAppFloat() {
       href={WHATSAPP_URL}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="Chat with Ayra Saloon on WhatsApp"
+      aria-label="Chat with Ayra Unisex Salon on WhatsApp"
       className={`wa-float fixed ${onBooking ? 'bottom-24' : 'bottom-5'} right-5 z-40 flex items-center justify-center w-13 h-13 p-3.5 rounded-full bg-[#25d366] text-white shadow-xl shadow-black/30 transition-all duration-200 ease-out active:scale-95 ${
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none'
       }`}

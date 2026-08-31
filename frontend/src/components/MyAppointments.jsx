@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Clock, Scissors, XCircle, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Calendar, Clock, Scissors, XCircle, CheckCircle2, AlertCircle, CalendarPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
 
@@ -35,6 +35,24 @@ const fmtTime = (t) => {
   const total = slots.length
     ? slots.reduce((s, sl) => s + (sl.service?.price || 0), 0)
     : (booking.service?.price || 0)
+
+  // Authenticated download — a plain link navigation can't send the Bearer
+  // token, so we fetch the .ics as a blob and trigger a save instead.
+  const downloadInvite = async () => {
+    try {
+      const { data } = await client.get(`/bookings/${booking.id}/calendar.ics`, { responseType: 'blob' })
+      const url = URL.createObjectURL(data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'ayra-appointment.ics'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Could not download the calendar invite')
+    }
+  }
 
   return (
     <div className={`glass-card p-6 border ${cfg.bg} transition-all duration-300 hover:shadow-lg`}>
@@ -105,12 +123,21 @@ const fmtTime = (t) => {
           </div>
           <span className="text-gold-400 font-semibold">₹{total.toLocaleString('en-IN')}</span>
           {(booking.status === 'confirmed' || booking.status === 'awaiting_reschedule') && (
-            <button
-              onClick={() => onCancel(booking.id)}
-              className="text-xs text-red-400 hover:text-red-300 transition-colors underline"
-            >
-              Cancel
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              <button
+                onClick={downloadInvite}
+                className="text-xs text-emerald-300 hover:text-gold-400 transition-colors inline-flex items-center gap-1.5"
+                title="Download the calendar invite (.ics)"
+              >
+                <CalendarPlus className="w-3.5 h-3.5" /> Add to calendar
+              </button>
+              <button
+                onClick={() => onCancel(booking.id)}
+                className="text-xs text-red-400 hover:text-red-300 transition-colors underline"
+              >
+                Cancel
+              </button>
+            </div>
           )}
         </div>
       </div>

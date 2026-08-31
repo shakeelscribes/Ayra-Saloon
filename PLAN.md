@@ -1,4 +1,4 @@
-# Ayra Saloon — Multi-Slot Booking System v2 (LOCKED)
+# Ayra Salon — Multi-Slot Booking System v2 (LOCKED)
 
 > Status: **Approved plan.** All decisions below are locked with the owner.
 > Delivery: staged PRs on `feature/shakeel`, each tested by the owner before merge.

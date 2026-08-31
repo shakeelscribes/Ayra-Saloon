@@ -6,7 +6,7 @@ WhatsApp. `send()` reports "pending" — a human completes the delivery.
 
 Later (auto mode): swap `send()` for the WhatsApp Business Cloud API (or a
 BSP such as Wati/Interakt) and messages leave automatically from the Ayra
-Saloon business number. Only this file changes — routes, models and both
+Salon business number. Only this file changes — routes, models and both
 admin clients stay untouched.
 
 delivery_status values stored on Notification:

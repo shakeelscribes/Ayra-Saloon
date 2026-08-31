@@ -17,7 +17,7 @@ export default function Philosophy() {
           </h2>
           <div className="mt-8 space-y-5 max-w-xl text-base md:text-[17px] text-cream/75 leading-relaxed">
               <p>
-                We opened Ayra with one belief: a great saloon isn't gold taps
+                We opened Ayra with one belief: a great salon isn't gold taps
                 and chandeliers — it is skill. A barber who reads your hairline
                 before the first cut. Stylists who ask how the last colour
                 aged. Chairs that never feel rushed.
@@ -32,7 +32,7 @@ export default function Philosophy() {
           {/* Pull-quote — the belief in one breath */}
           <blockquote className="mt-8 rounded-2xl border border-gold-500/20 bg-emerald-900/40 p-7 md:p-8">
             <p className="font-display italic text-xl md:text-2xl text-cream/90 leading-snug">
-              “A great saloon isn't gold taps and chandeliers — it's skilled
+              “A great salon isn't gold taps and chandeliers — it's skilled
               hands, clean tools, and honest prices.”
             </p>
           </blockquote>
@@ -86,7 +86,7 @@ export default function Philosophy() {
           <div className="aspect-[3/4] overflow-hidden rounded-2xl">
             <img
               src="/images/philosophy_interior.jpg"
-              alt="Warm modern interior of Ayra Saloon, Tirunelveli, with professional styling stations"
+              alt="Warm modern interior of Ayra Unisex Salon, Tirunelveli, with professional styling stations"
               loading="lazy"
               className="w-full h-full object-cover"
             />

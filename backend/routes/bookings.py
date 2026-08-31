@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from typing import List
 from datetime import datetime, timedelta, timezone
 from beanie import PydanticObjectId
@@ -109,6 +109,69 @@ async def write_notification(booking: models.Booking, user: models.User, kind: s
         sent_at=_now() if delivery_status == "auto_sent" else None,
         created_at=_now(),
     ).insert()
+
+
+async def send_calendar_invite(booking: models.Booking, user: models.User,
+                               kind: str, to_email: str = None) -> dict:
+    """Email the .ics calendar invite for a booking lifecycle moment.
+
+    kind — "confirmed" | "rescheduled" | "cancelled" (drives the email copy;
+           the ICS METHOD is REQUEST for the first two — same UID + higher
+           SEQUENCE updates the customer's existing event — and CANCEL for
+           the last, which deletes it).
+    to_email — optional override (walk-in form email). The customer's ACCOUNT
+           email is never touched; the invite is just sent to this address.
+
+    Never raises: an email outage must never fail the booking operation.
+    Skips synthetic walk-in addresses (walkin.*@ayrasaloon.local) — those
+    inboxes don't exist.
+    """
+    try:
+        from services.emailer import booking_invite_email, send_email
+        from services.ics import build_ics, calendar_uid
+
+        to = (to_email or user.email or "").strip()
+        if not to or to.endswith("@ayrasaloon.local"):
+            return {"status": "skipped", "error": "no real email on file"}
+        if not booking.date or not booking.time_slot:
+            return {"status": "skipped", "error": "booking has no date/time"}
+
+        services_list = []
+        total_mins = 0
+        for sid in booking.services or []:
+            svc = await models.Service.get(sid)
+            services_list.append(svc)
+            total_mins += (svc.duration_mins if svc and svc.duration_mins else 60)
+        stylist = await models.Stylist.get(booking.stylist_id)
+
+        method = "CANCEL" if kind == "cancelled" else "REQUEST"
+        ics = build_ics(
+            uid=booking.calendar_uid or calendar_uid(booking.id),
+            sequence=booking.calendar_sequence or 0,
+            method=method,
+            date=booking.date,
+            time_slot=booking.time_slot,
+            duration_mins=total_mins,
+            services=services_list,
+            stylist=stylist,
+            customer_name=user.name,
+        )
+        subject, html = booking_invite_email(
+            kind=kind,
+            customer_name=user.name,
+            service_names=" + ".join(s.name for s in services_list if s) or "Appointment",
+            stylist_name=stylist.name if stylist else "our team",
+            date=booking.date,
+            time_slot=booking.time_slot,
+        )
+        result = await send_email(to, subject, html, ics=ics, ics_method=method)
+        # ASCII-only log line — Windows consoles (cp1252) can't print '→'.
+        print(f"Calendar invite [{kind}] booking {booking.id} to {to}: "
+              f"{result.get('status')} {result.get('error') or ''}".strip(), flush=True)
+        return result
+    except Exception as e:
+        print(f"Calendar invite error (booking {booking.id}): {e}", flush=True)
+        return {"status": "failed", "error": str(e)}
 
 
 async def _resolve_and_check(items, date, time_slot, customer_id,
@@ -303,7 +366,7 @@ async def create_booking(
         booking, current_user, "booking_pending",
         f"Hi {current_user.name}! Your request ({service_names}) with {stylist_names} "
         f"on {booking_data.date} at {booking_data.time_slot} is received and awaiting "
-        f"confirmation from Ayra Saloon.",
+        f"confirmation from Ayra Unisex Salon.",
     )
 
     return await serialize_booking(booking)
@@ -333,7 +396,9 @@ async def admin_create_booking(
         import secrets
         user = models.User(
             name=data.customer_name.strip(),
-            email=f"walkin.{tail}@ayrasaloon.local",
+            # A form-provided email becomes the account email (claimable later);
+            # otherwise the synthetic walkin.*@ayrasaloon.local placeholder.
+            email=(data.customer_email or "").strip() or f"walkin.{tail}@ayrasaloon.local",
             hashed_password=get_password_hash(secrets.token_urlsafe(24)),
             phone=("+91" + tail) if len(digits) == 10 else data.phone.strip(),
         )
@@ -385,17 +450,26 @@ async def admin_create_booking(
     service_names = " + ".join(s.name for s, _, _, _ in windows)
     stylist_names = " + ".join(dict.fromkeys(s.name for _, s, _, _ in windows))
     if data.confirm_now:
+        # Calendar invite: stamp UID + SEQUENCE 0 on the confirmed walk-in.
+        from services.ics import calendar_uid
+        booking.calendar_uid = booking.calendar_uid or calendar_uid(booking.id)
+        booking.calendar_sequence = 0
+        await booking.save()
         await write_notification(
             booking, user, "booking_confirmed",
             f"Hi {user.name}! Your appointment ({service_names}) with {stylist_names} "
-            f"on {data.date} at {data.time_slot} is confirmed. See you at Ayra Saloon!",
+            f"on {data.date} at {data.time_slot} is confirmed. See you at Ayra Unisex Salon!",
         )
+        # Invite goes to the form email if given (matched customer's account
+        # email is never overwritten); falls back to the account email.
+        await send_calendar_invite(booking, user, "confirmed",
+                                   to_email=(data.customer_email or "").strip() or None)
     else:
         await write_notification(
             booking, user, "booking_pending",
             f"Hi {user.name}! Your request ({service_names}) with {stylist_names} "
             f"on {data.date} at {data.time_slot} is received and awaiting "
-            f"confirmation from Ayra Saloon.",
+            f"confirmation from Ayra Unisex Salon.",
         )
 
     return await serialize_booking(booking)
@@ -410,6 +484,53 @@ async def get_my_bookings(
     ).sort(-models.Booking.created_at).to_list()
 
     return [await serialize_booking(b) for b in bookings]
+
+
+@router.get("/{booking_id}/calendar.ics")
+async def download_calendar_invite(
+    booking_id: PydanticObjectId,
+    current_user: models.User = Depends(get_current_user),
+):
+    """Fallback tap-to-add: serves the booking's .ics invite as a download for
+    customers who missed the email (or prefer a button). Same UID/SEQUENCE as
+    the emailed invite, so adding it updates rather than duplicates."""
+    booking = await models.Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if booking.status != models.BookingStatus.confirmed:
+        raise HTTPException(status_code=409, detail="Only confirmed bookings have a calendar invite.")
+    if not booking.date or not booking.time_slot:
+        raise HTTPException(status_code=409, detail="Booking has no date/time.")
+
+    from services.ics import build_ics, calendar_uid
+
+    services_list = []
+    total_mins = 0
+    for sid in booking.services or []:
+        svc = await models.Service.get(sid)
+        services_list.append(svc)
+        total_mins += (svc.duration_mins if svc and svc.duration_mins else 60)
+    stylist = await models.Stylist.get(booking.stylist_id)
+    user = await models.User.get(booking.user_id)
+
+    ics = build_ics(
+        uid=booking.calendar_uid or calendar_uid(booking.id),
+        sequence=booking.calendar_sequence or 0,
+        method="REQUEST",
+        date=booking.date,
+        time_slot=booking.time_slot,
+        duration_mins=total_mins,
+        services=services_list,
+        stylist=stylist,
+        customer_name=user.name if user else "",
+    )
+    return Response(
+        content=ics,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="ayra-appointment.ics"'},
+    )
 
 
 @router.delete("/{booking_id}", status_code=204)
@@ -439,9 +560,14 @@ async def cancel_booking(
     if user:
         await write_notification(
             booking, user, "booking_cancelled",
-            f"Your Ayra Saloon appointment on {booking.date} has been cancelled. "
+            f"Your Ayra Unisex Salon appointment on {booking.date} has been cancelled. "
             f"Book again anytime — we'd love to see you.",
         )
+        # METHOD:CANCEL with the stored UID deletes the event from the
+        # customer's calendar. No UID → no invite was ever sent → nothing to
+        # remove (declined / TTL-expired bookings land here too).
+        if booking.calendar_uid:
+            await send_calendar_invite(booking, user, "cancelled")
 
 
 # ── Admin: approve / decline pending bookings ─────────────────────────────────
@@ -459,14 +585,20 @@ async def approve_booking(
 
     booking.status = models.BookingStatus.confirmed
     write_history(booking, "admin", "approved", from_status, "confirmed")
+    # Calendar invite: stamp the UID + SEQUENCE 0 now so every later email
+    # (reschedule / cancel) references the same event.
+    from services.ics import calendar_uid
+    booking.calendar_uid = booking.calendar_uid or calendar_uid(booking.id)
+    booking.calendar_sequence = 0
     await booking.save()
 
     user = await models.User.get(booking.user_id)
     if user:
         await write_notification(
             booking, user, "booking_confirmed",
-            f"Good news {user.name}! Your Ayra Saloon booking on {booking.date} is confirmed. See you soon!",
+            f"Good news {user.name}! Your Ayra Unisex Salon booking on {booking.date} is confirmed. See you soon!",
         )
+        await send_calendar_invite(booking, user, "confirmed")
     return await serialize_booking(booking)
 
 
@@ -495,7 +627,7 @@ async def decline_booking(
     if user:
         await write_notification(
             booking, user, "booking_declined",
-            f"Your Ayra Saloon booking request on {booking.date} could not be accommodated. "
+            f"Your Ayra Unisex Salon booking request on {booking.date} could not be accommodated. "
             f"Call us to find an alternative slot.",
         )
     return await serialize_booking(booking)
@@ -626,7 +758,7 @@ async def propose_reschedule(
     if user:
         await write_notification(
             booking, user, "reschedule_proposed",
-            f"Hi {user.name}! Ayra Saloon proposes moving your appointment to "
+            f"Hi {user.name}! Ayra Unisex Salon proposes moving your appointment to "
             f"{body.date} at {body.time_slot}. Open My Bookings to accept or decline.",
         )
     return await serialize_booking(booking)
@@ -653,14 +785,18 @@ async def accept_reschedule(
     booking.proposed_time_slot = None
     booking.proposed_at = None
     write_history(booking, "customer", "reschedule_accepted", "awaiting_reschedule", "confirmed")
+    # SEQUENCE bump: the customer's calendar sees a NEWER version of the SAME
+    # event (UID unchanged) — that's what makes the event MOVE.
+    booking.calendar_sequence = (booking.calendar_sequence or 0) + 1
     await booking.save()
 
     user = await models.User.get(booking.user_id)
     if user:
         await write_notification(
             booking, user, "reschedule_confirmed",
-            f"Confirmed! Your Ayra Saloon appointment is now {booking.date} at {booking.time_slot}.",
+            f"Confirmed! Your Ayra Unisex Salon appointment is now {booking.date} at {booking.time_slot}.",
         )
+        await send_calendar_invite(booking, user, "rescheduled")
     return await serialize_booking(booking)
 
 
@@ -693,7 +829,7 @@ async def decline_reschedule(
         await write_notification(
             booking, user, "booking_declined",
             f"The proposed reschedule was declined and the request closed. "
-            f"Book again anytime at Ayra Saloon.",
+            f"Book again anytime at Ayra Unisex Salon.",
         )
     return await serialize_booking(booking)
 

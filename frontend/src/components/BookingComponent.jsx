@@ -849,7 +849,7 @@ export default function BookingComponent() {
     <div className="min-h-screen pt-24 pb-16 px-6">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <p className="step-counter mb-1.5">Ayra Saloon · Reservation</p>
+          <p className="step-counter mb-1.5">Ayra Unisex Salon · Reservation</p>
           <h1 className="font-display text-3xl sm:text-4xl text-cream">Book Your Visit</h1>
           <div className="gold-divider" />
         </div>
@@ -1227,8 +1227,8 @@ export default function BookingComponent() {
                   </div>
                   {!user && (
                     <p className="text-center text-emerald-300 text-sm -mt-2 mb-4">
-                      Please <Link to="/login" className="text-gold-400 underline">login</Link> or{' '}
-                      <Link to="/signup" className="text-gold-400 underline">sign up</Link> to complete your booking.
+                      Please <Link to="/login?redirect=/book" className="text-gold-400 underline">login</Link> or{' '}
+                      <Link to="/signup?redirect=/book" className="text-gold-400 underline">sign up</Link> to complete your booking.
                     </p>
                   )}
                 </div>
@@ -1269,29 +1269,36 @@ export default function BookingComponent() {
                   </button>
                 )}
                 {showConfirm && (
-                  <button
-                    id="confirm-booking-btn"
-                    type="button"
-                    onPointerDown={() => tap(10)}
-                    onClick={handleSubmit}
-                    disabled={submitting || !user || !canConfirm}
-                    className="btn-gold flex items-center gap-2"
-                  >
-                    {submitting ? 'Sending…' : user ? 'Confirm Booking' : 'Login to Book'}
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                  user ? (
+                    <button
+                      id="confirm-booking-btn"
+                      type="button"
+                      onPointerDown={() => tap(10)}
+                      onClick={handleSubmit}
+                      disabled={submitting || !canConfirm}
+                      className="btn-gold flex items-center gap-2"
+                    >
+                      {submitting ? 'Sending…' : 'Confirm Booking'}
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      id="login-to-book-btn"
+                      type="button"
+                      onPointerDown={() => tap(10)}
+                      onClick={() => navigate('/login?redirect=/book')}
+                      className="btn-gold flex items-center gap-2"
+                    >
+                      Login to Book
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  )
                 )}
               </div>
             </div>
           )
         })()}
 
-        {!user && logicalStepName === 'confirm' && (
-          <p className="text-center text-emerald-300 text-sm mt-4">
-            Please <Link to="/login" className="text-gold-400 underline hover:text-gold-300">login</Link> or{' '}
-            <Link to="/signup" className="text-gold-400 underline hover:text-gold-300">sign up</Link> to complete your booking.
-          </p>
-        )}
       </div>
     </div>
   )

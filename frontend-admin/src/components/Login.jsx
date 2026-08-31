@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Mail, Lock, Eye, EyeOff, Scissors } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
 
@@ -35,12 +35,14 @@ export default function Login() {
       <div className="w-full max-w-md animate-slide-up">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-full bg-gold-gradient flex items-center justify-center mx-auto mb-4">
-            <Scissors className="w-8 h-8 text-emerald-950" />
-          </div>
-          <h1 className="font-display text-3xl text-cream">Ayra Staff Panel</h1>
+          <img
+            src="/brand/ayra-mark.png"
+            alt="Ayra Unisex Salon emblem"
+            className="w-16 h-16 mx-auto mb-4 transition-transform duration-300 hover:scale-105"
+          />
+          <h1 className="font-display text-3xl text-cream">Ayra Unisex Salon</h1>
           <div className="gold-divider" />
-          <p className="text-emerald-300 text-sm mt-2">Sign in to manage appointments</p>
+          <p className="text-emerald-300 text-sm mt-2">Staff panel — sign in to manage appointments</p>
         </div>
 
         <div className="glass-card p-8">

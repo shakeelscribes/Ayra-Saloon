@@ -24,6 +24,8 @@ class NewAppointmentScreen extends StatefulWidget {
 class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
+  // Optional — only used for the calendar invite email (never required).
+  final _email = TextEditingController();
   final _notes = TextEditingController();
 
   List<m.ServiceModel> _services = [];
@@ -56,6 +58,7 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
   void dispose() {
     _name.dispose();
     _phone.dispose();
+    _email.dispose();
     _notes.dispose();
     super.dispose();
   }
@@ -250,6 +253,13 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
       );
       return;
     }
+    final email = _email.text.trim();
+    if (email.isNotEmpty && !RegExp(r'^\S+@\S+\.\S+$').hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("That email doesn't look right")),
+      );
+      return;
+    }
     if (_items.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -266,6 +276,7 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
       await Api.instance.createWalkIn({
         'customer_name': _name.text.trim(),
         'phone': _phone.text.trim(),
+        'customer_email': email.isEmpty ? null : email,
         'items': _items
             .map(
               (i) => {'service_id': i.service.id, 'stylist_id': i.stylist.id},
@@ -291,6 +302,7 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
       setState(() {
         _name.clear();
         _phone.clear();
+        _email.clear();
         _notes.clear();
         _items.clear();
         _pickServiceId = null;
@@ -415,6 +427,31 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                     const SizedBox(height: 6),
                     const Text(
                       'Existing customers are matched by number — new ones get an account automatically.',
+                      style: TextStyle(color: emerald500, fontSize: 10.5),
+                    ),
+                    const SizedBox(height: 14),
+                    const Row(
+                      children: [
+                        Icon(Icons.mail_outline, size: 12, color: emerald300),
+                        SizedBox(width: 4),
+                        Text(
+                          'Email (optional)',
+                          style: TextStyle(color: emerald300, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      key: const ValueKey('email_field'),
+                      controller: _email,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        hintText: 'customer@email.com',
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Used to send a calendar invite when the appointment is confirmed.',
                       style: TextStyle(color: emerald500, fontSize: 10.5),
                     ),
                   ],

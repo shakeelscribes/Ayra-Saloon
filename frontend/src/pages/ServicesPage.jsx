@@ -28,7 +28,7 @@ const EASE_OUT = [0.16, 1, 0.3, 1]
 const waEnquire = (service) =>
   'https://wa.me/918270606750?text=' +
   encodeURIComponent(
-    `Hi Ayra Saloon! I'm interested in ${service.name} (₹${service.price.toLocaleString('en-IN')}). Please share consultation details.`
+    `Hi Ayra Unisex Salon! I'm interested in ${service.name} (₹${service.price.toLocaleString('en-IN')}). Please share consultation details.`
   )
 
 /* Known categories — anything else in the DB auto-discovers with defaults. */
@@ -212,9 +212,9 @@ function ServiceCard({ service, index }) {
 
 export default function ServicesPage() {
   usePageMeta({
-    title: 'Salon Services & Pricing | Ayra Saloon Tirunelveli',
+    title: 'Salon Services & Pricing | Ayra Unisex Salon Tirunelveli',
     description:
-      'Full service menu of Ayra Saloon, Tirunelveli — haircuts, colour, keratin, beard styling, bridal makeup and tattoos with transparent pricing. Book online in a minute.',
+      'Full service menu of Ayra Unisex Salon, Tirunelveli — haircuts, colour, keratin, beard styling, bridal makeup and tattoos with transparent pricing. Book online in a minute.',
   })
 
   const [services, setServices] = useState(null)

@@ -47,9 +47,11 @@ function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-12 pb-12">
             {/* Brand */}
             <div className="md:col-span-5">
-              <p className="font-display text-3xl text-cream tracking-tight">
-                Ayra <span className="italic text-gold-400">Saloon</span>
-              </p>
+              <img
+                src="/brand/ayra-wordmark.png"
+                alt="Ayra Unisex Salon"
+                className="h-12 w-auto"
+              />
               <p className="mt-3 text-sm text-cream/50 font-light max-w-xs leading-relaxed">
                 Modern grooming for everyone — precision cuts, beard work,
                 colour, bridal styling and tattoos in the heart of
@@ -104,7 +106,7 @@ function LandingPage() {
           </div>
 
           <div className="pt-6 border-t border-cream/10 flex flex-col sm:flex-row justify-between gap-2 text-xs text-cream/50">
-            <p>© {new Date().getFullYear()} Ayra Saloon. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} Ayra Unisex Salon. All rights reserved.</p>
             <p>Tirunelveli, Tamil Nadu, India</p>
           </div>
         </div>

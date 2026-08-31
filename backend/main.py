@@ -50,7 +50,7 @@ async def _stale_booking_cleanup():
                 if user:
                     await write_notification(
                         booking, user, "booking_declined",
-                        f"Your Ayra Saloon request from {booking.date} expired before "
+                        f"Your Ayra Unisex Salon request from {booking.date} expired before "
                         f"approval. Book again anytime!",
                     )
             if stale_pending or stale_proposals:
@@ -61,8 +61,8 @@ async def _stale_booking_cleanup():
             print(f"TTL cleanup error: {e}", flush=True)
 
 app = FastAPI(
-    title="Ayra Saloon API",
-    description="Backend for Ayra Saloon booking system",
+    title="Ayra Unisex Salon API",
+    description="Backend for Ayra Unisex Salon booking system",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -442,7 +442,7 @@ async def seed_data():
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to Ayra Saloon API", "docs": "/docs"}
+    return {"message": "Welcome to Ayra Unisex Salon API", "docs": "/docs"}
 
 if __name__ == "__main__":
     import uvicorn

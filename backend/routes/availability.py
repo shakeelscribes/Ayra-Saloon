@@ -21,6 +21,11 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 #  140 min → 2 slots · 150 min → 2 slots · 151 min → 3 slots
 GRACE_MINS = 30
 
+# Booking cutoff: a slot's booking closes this many minutes before its start
+# (the 10:00 slot disappears at 09:50). Enforced here for the shared guard in
+# bookings.py and mirrored by every client-side slot grid.
+BOOKING_CUTOFF_MINS = 10
+
 
 def hm_to_mins(hm: str) -> int:
     h, m = hm.split(":")

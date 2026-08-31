@@ -27,6 +27,13 @@ const istToday = () => {
   return new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000).toISOString().split('T')[0]
 }
 
+/* IST minutes-since-midnight right now (IST = UTC+5:30) — drives the 10-min
+   booking cutoff in the reschedule grid, mirroring the backend guard. */
+const istNowMins = () => {
+  const now = new Date()
+  return (now.getUTCHours() * 60 + now.getUTCMinutes() + 330) % 1440
+}
+
 const kindConfig = {
   booking_pending:      { label: 'Request received',    cls: 'text-amber-400 bg-amber-900/20 border-amber-800' },
   booking_confirmed:    { label: 'Confirmed',           cls: 'text-emerald-400 bg-emerald-900/20 border-emerald-700' },
@@ -642,20 +649,25 @@ export default function Dashboard() {
             ) : (
               <div className="grid grid-cols-4 gap-2 mb-4">
                 {ALL_SLOTS.map(t => {
-                  const viable = viableStarts.has(t)
+                  // 10-min booking cutoff for today — mirrors the backend
+                  // reschedule guard (strictly future-facing, no override).
+                  const closed = propDate === istToday() && toMins(t) - istNowMins() < 10
+                  const viable = viableStarts.has(t) && !closed
                   const selected = propStart === t
                   return (
                     <button
                       key={t}
                       disabled={!viable}
                       onClick={() => setPropStart(t)}
-                      title={viable ? '' : 'Not available'}
+                      title={viable ? '' : closed ? 'Booking closed — starts in under 10 minutes' : 'Not available'}
                       className={`py-2 text-xs rounded-lg border transition-colors duration-200 ${
                         selected
                           ? 'bg-gold-gradient text-emerald-950 border-gold-500 font-semibold'
                           : viable
                             ? 'border-emerald-700 text-cream hover:border-gold-500/60'
-                            : 'border-emerald-800/50 text-emerald-700 line-through cursor-not-allowed'
+                            : closed
+                              ? 'border-emerald-800/50 text-emerald-700/60 cursor-not-allowed'
+                              : 'border-emerald-800/50 text-emerald-700 line-through cursor-not-allowed'
                       }`}
                     >
                       {fmtTime(t)}

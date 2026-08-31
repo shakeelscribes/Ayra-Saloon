@@ -5,8 +5,8 @@ from beanie import PydanticObjectId
 import models, schemas
 from auth import get_current_user, get_current_admin
 from limiter import limiter
-from routes.availability import (ALL_SLOTS, hm_to_mins, mins_to_hm,
-                                 slots_needed, intervals_overlap)
+from routes.availability import (ALL_SLOTS, BOOKING_CUTOFF_MINS, hm_to_mins,
+                                 mins_to_hm, slots_needed, intervals_overlap)
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
@@ -111,13 +111,15 @@ async def write_notification(booking: models.Booking, user: models.User, kind: s
     ).insert()
 
 
-async def _resolve_and_check(items, date, time_slot, customer_id, grace_mins=0):
+async def _resolve_and_check(items, date, time_slot, customer_id,
+                             ignore_cutoff=False):
     """Shared validation for customer and admin (walk-in) booking creation.
 
     Resolves every item's service + stylist, enforces the freshness guard
     (IST), category/audience rules, closing-time fit and conflict checks.
-    `grace_mins` lets the admin seat a walk-in in the current hour slot while
-    up to that many minutes of it remain.
+    `ignore_cutoff` (admin walk-in override) waives ONLY the time cutoff —
+    a started/passed slot today becomes bookable at any point. Past dates
+    and conflict checks always apply.
 
     Returns (resolved, windows, total_mins, audience):
       resolved — [(service, stylist), ...] in booking order
@@ -131,15 +133,16 @@ async def _resolve_and_check(items, date, time_slot, customer_id, grace_mins=0):
     today_ist = now_ist.date().isoformat()
     if date < today_ist:
         raise HTTPException(status_code=400, detail="That date has already passed.")
-    if date == today_ist and time_slot <= now_ist.strftime("%H:%M"):
-        # Admin grace: a walk-in can be seated in the current hour slot while
-        # up to `grace_mins` of it remain.
+    if date == today_ist and not ignore_cutoff:
+        # Booking closes BOOKING_CUTOFF_MINS before the slot starts: the 10:00
+        # slot is bookable until 09:50, gone from 09:51 on.
         slot_min = hm_to_mins(time_slot)
         now_min = now_ist.hour * 60 + now_ist.minute
-        if not (grace_mins > 0 and 0 <= now_min - slot_min <= grace_mins):
+        if slot_min - now_min < BOOKING_CUTOFF_MINS:
             raise HTTPException(
                 status_code=400,
-                detail="That time has already passed today. Pick a later slot.",
+                detail=(f"Booking for this slot closes {BOOKING_CUTOFF_MINS} "
+                        f"minutes before start. Pick a later slot."),
             )
 
     # ── Validate + resolve every item (service, stylist) ──────────────────────
@@ -337,10 +340,11 @@ async def admin_create_booking(
         await user.insert()
         created_user = True
 
-    # Walk-ins may be seated in the current hour slot while up to 30 min of
-    # it remain — mirrors the salon's 30-min grace convention.
+    # Walk-in override: ignore_cutoff=true seats a customer in a started/passed
+    # slot today at any point; conflicts and closing-fit still apply.
     resolved, windows, total_mins, audience = await _resolve_and_check(
-        data.items, data.date, data.time_slot, user.id, grace_mins=30)
+        data.items, data.date, data.time_slot, user.id,
+        ignore_cutoff=data.ignore_cutoff)
 
     status_value = (models.BookingStatus.confirmed if data.confirm_now
                     else models.BookingStatus.pending)
@@ -537,15 +541,21 @@ async def propose_reschedule(
         )
 
     # ── Freshness guard (IST): never propose a slot in the past ───────────────
+    # Reschedule is strictly future-facing: the 10-min booking cutoff applies
+    # with no walk-in override (started-slot seating belongs to admin create).
     now_ist = _ist_now()
     today_ist = now_ist.date().isoformat()
     if body.date < today_ist:
         raise HTTPException(status_code=400, detail="That date has already passed.")
-    if body.date == today_ist and body.time_slot <= now_ist.strftime("%H:%M"):
-        raise HTTPException(
-            status_code=400,
-            detail="That time has already passed today. Pick a later slot.",
-        )
+    if body.date == today_ist:
+        slot_min = hm_to_mins(body.time_slot)
+        now_min = now_ist.hour * 60 + now_ist.minute
+        if slot_min - now_min < BOOKING_CUTOFF_MINS:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Booking for this slot closes {BOOKING_CUTOFF_MINS} "
+                        f"minutes before start. Pick a later slot."),
+            )
 
     # ── Real back-to-back windows from the proposed start ─────────────────────
     cursor = hm_to_mins(body.time_slot)

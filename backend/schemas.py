@@ -81,6 +81,9 @@ class AdminBookingCreate(BaseModel):
     time_slot: str     # "HH:MM" — start slot
     notes: Optional[str] = None
     confirm_now: bool = True
+    # Walk-in override: seat a customer in a started/passed slot today.
+    # Waives only the 10-min booking cutoff — never conflicts or past dates.
+    ignore_cutoff: bool = False
 
 class BookingSlotOut(BaseModel):
     id: PydanticObjectId

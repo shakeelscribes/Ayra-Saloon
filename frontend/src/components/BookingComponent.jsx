@@ -185,6 +185,13 @@ const istDate = (days = 0) => {
     .toISOString().split('T')[0]
 }
 
+/* IST minutes-since-midnight right now (IST = UTC+5:30). Used by the booking
+   cutoff below — mirrors the backend's BOOKING_CUTOFF_MINS guard. */
+const istNowMins = () => {
+  const now = new Date()
+  return (now.getUTCHours() * 60 + now.getUTCMinutes() + 330) % 1440
+}
+
 const CATEGORY_TABS = [
   { id: 'all',     label: 'All'      },
   { id: 'hair',     label: 'Hair'     },
@@ -715,12 +722,21 @@ export default function BookingComponent() {
   const maxStarts = Math.max(0, ALL_SLOTS.length - blockSlots + 1)
   const takenStarts = availLoaded ? ALL_SLOTS.slice(0, maxStarts).filter((t) => !viableStarts.has(t)).length : 0
 
+  /* 10-min booking cutoff: a slot is bookable until 10 minutes before it
+     starts (the 10:00 slot closes at 09:50). Today only — future dates are
+     always open. Mirrors the backend guard in bookings.py. */
+  const isClosedStart = (t) => date === istDate(0) && toMins(t) - istNowMins() < 10
+  const closedStarts = date === istDate(0)
+    ? ALL_SLOTS.filter((t) => toMins(t) - istNowMins() < 10).length
+    : 0
+
   /* A stale selection must never masquerade as valid: if the chosen start
      stops being viable (stylist changed on the step above, availability
-     moved), drop it — same contract as changing the date. */
+     moved) or its booking window closed (10-min cutoff), drop it — same
+     contract as changing the date. */
   useEffect(() => {
-    if (startTime && availLoaded && !viableStarts.has(startTime)) setStartTime(null)
-  }, [startTime, availLoaded, viableStarts])
+    if (startTime && availLoaded && (!viableStarts.has(startTime) || isClosedStart(startTime))) setStartTime(null)
+  }, [startTime, availLoaded, viableStarts, date])
 
   const canConfirm = Boolean(resolution?.plan?.length) && !resolution.blockedAt
 
@@ -1108,23 +1124,26 @@ export default function BookingComponent() {
                           const startIdx = ALL_SLOTS.indexOf(t)
                           const fits = startIdx + blockSlots <= ALL_SLOTS.length
                           const taken = fits && availLoaded && !viableStarts.has(t)
-                          const disabled = !fits || taken
+                          const closed = !taken && isClosedStart(t)
+                          const disabled = !fits || taken || closed
                           return (
                             <button
                               key={t}
                               type="button"
                               disabled={disabled}
-                              title={taken ? 'Already booked' : !fits ? 'Not enough time before closing' : undefined}
+                              title={taken ? 'Already booked' : closed ? 'Booking closed — starts in under 10 minutes' : !fits ? 'Not enough time before closing' : undefined}
                               onPointerDown={() => !disabled && tap(4)}
                               onClick={() => { if (!disabled) { tap(8); setStartTime(t) } }}
                               className={`tap-target py-2.5 rounded-xl text-sm font-medium transition-colors duration-200 ${
                                 taken
                                   ? 'bg-emerald-950/60 text-emerald-600 border border-emerald-800/60 line-through cursor-not-allowed'
-                                  : startTime === t
-                                    ? 'bg-gold-gradient text-emerald-950 border border-gold-400 shadow-[0_0_0_1px_rgba(201,168,76,0.3)]'
-                                    : !fits
-                                      ? 'bg-emerald-950 text-emerald-700/70 border border-dashed border-emerald-800 cursor-not-allowed opacity-60'
-                                      : 'bg-emerald-900 text-cream border border-emerald-700 hover:border-gold-500/50'
+                                  : closed
+                                    ? 'bg-emerald-950/40 text-emerald-700/60 border border-emerald-900/70 cursor-not-allowed opacity-60'
+                                    : startTime === t
+                                      ? 'bg-gold-gradient text-emerald-950 border border-gold-400 shadow-[0_0_0_1px_rgba(201,168,76,0.3)]'
+                                      : !fits
+                                        ? 'bg-emerald-950 text-emerald-700/70 border border-dashed border-emerald-800 cursor-not-allowed opacity-60'
+                                        : 'bg-emerald-900 text-cream border border-emerald-700 hover:border-gold-500/50'
                               }`}
                             >
                               {fmtTime(t)}
@@ -1138,6 +1157,11 @@ export default function BookingComponent() {
                         {takenStarts >= maxStarts
                           ? 'No start times left for this date — try another day.'
                           : 'Struck-through times are already booked.'}
+                      </p>
+                    )}
+                    {closedStarts > 0 && (
+                      <p className="mt-1 text-emerald-400/60 text-xs">
+                        Faded times have closed — booking ends 10 minutes before a slot starts.
                       </p>
                     )}
                     {startTime && resolution?.blockedAt !== null && (

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, User, Phone, Plus, Trash2, CheckCircle2, Calendar, Search } from 'lucide-react'
+import { ArrowLeft, Scissors, User, Phone, Plus, Trash2, CheckCircle2, Calendar, Search, Clock, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
 
@@ -67,6 +67,145 @@ const CATEGORY_TABS = [
   { id: 'general', label: 'Other' },
 ]
 
+/* ── Custom dropdown ─────────────────────────────────────────────────────
+   Native <select> can't be styled and pops UP when the trigger sits low in
+   the viewport. This listbox always expands DOWNWARD from its trigger with
+   a 200ms ease-out pop (scale .97 → 1 + fade, origin at the trigger —
+   never from scale 0), supports grouped options (kids: For boys / For
+   girls) and a secondary hint (duration · price) per option. Closes on
+   outside click / Escape; arrow keys + Enter work like a native select. */
+function Dropdown({ value, onChange, groups, placeholder, disabled, ariaLabel, className }) {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(-1)
+  const rootRef = useRef(null)
+  const menuRef = useRef(null)
+  const triggerRef = useRef(null)
+
+  const flat = useMemo(() => groups.flatMap(g => g.options), [groups])
+  const selected = flat.find(o => String(o.value) === String(value))
+
+  // Close on outside click / Escape while open.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (!rootRef.current?.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); triggerRef.current?.focus() } }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // A disabled dropdown never stays open (e.g. the stylist lock when the
+  // service pick is cleared).
+  useEffect(() => { if (disabled && open) setOpen(false) }, [disabled, open])
+
+  // Keep the highlighted option visible while navigating with arrows.
+  useEffect(() => {
+    if (!open || active < 0) return
+    menuRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active, open])
+
+  const openMenu = () => {
+    const sel = flat.findIndex(o => String(o.value) === String(value))
+    setActive(sel >= 0 ? sel : 0)
+    setOpen(true)
+  }
+
+  const choose = (o) => {
+    onChange(o.value)
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  const onKeyDown = (e) => {
+    if (disabled) return
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openMenu() }
+      return
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(flat.length - 1, a + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(0, a - 1)) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (flat[active]) choose(flat[active]) }
+    else if (e.key === 'Tab') setOpen(false)
+  }
+
+  let idx = -1
+  return (
+    <div ref={rootRef} className={`relative ${className || ''}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={onKeyDown}
+        className={`luxury-input flex items-center justify-between gap-2 text-left transition-transform duration-150 active:scale-[0.98] ${
+          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+        }`}
+      >
+        <span className={`truncate ${selected ? 'text-cream' : 'text-emerald-600'}`}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 shrink-0 text-emerald-300 transition-transform duration-200 motion-reduce:transition-none ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      <div
+        ref={menuRef}
+        role="listbox"
+        aria-label={ariaLabel}
+        className={`absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-xl border border-emerald-700 bg-emerald-900 shadow-xl shadow-black/40 origin-top transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+          open
+            ? 'opacity-100 translate-y-0 scale-100'
+            : 'pointer-events-none opacity-0 -translate-y-1 scale-[0.97]'
+        }`}
+      >
+        {flat.length === 0 && (
+          <p className="px-3 py-3 text-xs text-emerald-400">Nothing matches.</p>
+        )}
+        {groups.map((g, gi) => (
+          <div key={g.label || gi} className={gi > 0 ? 'border-t border-emerald-800' : ''}>
+            {g.label && (
+              <p className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-widest text-gold-400">
+                {g.label}
+              </p>
+            )}
+            {g.options.map(o => {
+              idx++
+              const sel = String(o.value) === String(value)
+              const hot = open && idx === active
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="option"
+                  aria-selected={sel}
+                  data-idx={idx}
+                  onMouseEnter={() => setActive(idx)}
+                  onClick={() => choose(o)}
+                  className={`flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors duration-150 ${
+                    hot ? 'bg-emerald-800' : ''
+                  } ${sel ? 'text-gold-400' : 'text-cream'}`}
+                >
+                  <span className="truncate text-sm">{o.label}</span>
+                  {o.hint && <span className="whitespace-nowrap text-[11px] text-emerald-300">{o.hint}</span>}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function NewAppointment() {
   const navigate = useNavigate()
 
@@ -101,6 +240,9 @@ export default function NewAppointment() {
   const [availLoading, setAvailLoading] = useState(false)
 
   const [confirmNow, setConfirmNow] = useState(true)
+  // Walk-in override: seat a customer in a started/passed slot today.
+  // Waives only the 10-min booking cutoff — never conflicts or past dates.
+  const [ignoreCutoff, setIgnoreCutoff] = useState(false)
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -153,6 +295,20 @@ export default function NewAppointment() {
     }
     return sorted
   }, [services, audience, svcCategory, svcQuery, svcSort])
+
+  // Dropdown option groups — kids split into For boys / For girls (same
+  // grouping the old <optgroup>s had); everyone else is one flat list.
+  // The hint carries the "45m · ₹250" detail the old option text showed.
+  const serviceGroups = useMemo(() => {
+    const toOpt = (s) => ({ value: s.id, label: s.name, hint: `${s.duration_mins}m · ₹${s.price}` })
+    if (audience === 'kids') {
+      return [
+        { label: 'For boys', options: filteredServices.filter(s => s.kid_gender === 'boy').map(toOpt) },
+        { label: 'For girls', options: filteredServices.filter(s => s.kid_gender === 'girl').map(toOpt) },
+      ].filter(g => g.options.length > 0)
+    }
+    return [{ label: '', options: filteredServices.map(toOpt) }]
+  }, [filteredServices, audience])
 
   // Per-tab counts so the admin sees how many services live in each
   // category before tapping (adult flow only).
@@ -267,11 +423,12 @@ export default function NewAppointment() {
   const availLoaded = !availLoading && itemStylistIds.length > 0 &&
     itemStylistIds.every(id => avail[id])
 
-  // Grace-aware past slots for today — mirrors the backend freshness guard:
-  // a slot stays bookable today while up to 30 min of it remain; beyond
-  // that the backend would 400, so disable it upfront.
+  // 10-min booking cutoff for today — mirrors the backend freshness guard:
+  // a slot is bookable until 10 minutes before it starts (10:00 closes at
+  // 09:50). With the walk-in override ON, started/passed slots stay
+  // selectable (backend receives ignore_cutoff=true).
   const isToday = date === istToday()
-  const isPassed = (t) => isToday && istNowMins() - toMins(t) > 30
+  const isPassed = (t) => isToday && !ignoreCutoff && toMins(t) - istNowMins() < 10
 
   // "Struck-through times are already booked" helper — shown when at least
   // one slot is booked out (as opposed to not fitting before closing).
@@ -294,6 +451,7 @@ export default function NewAppointment() {
         time_slot: start,
         notes: notes.trim() || null,
         confirm_now: confirmNow,
+        ignore_cutoff: ignoreCutoff,
       })
       toast.success(confirmNow ? 'Appointment booked & confirmed' : 'Appointment saved as pending')
       navigate('/', { replace: true })
@@ -357,8 +515,10 @@ export default function NewAppointment() {
             </div>
           </div>
 
-          {/* Services */}
-          <div className="glass-card p-6">
+          {/* Services — z-10 keeps the open dropdown menu above the Schedule
+              card (backdrop-filter gives every glass-card its own stacking
+              context, so an unpositioned card would paint over the menu). */}
+          <div className="glass-card p-6 relative z-10">
             <h2 className="font-display text-xl text-cream mb-5 flex items-center gap-2">
               <Scissors className="w-5 h-5 text-gold-400" /> Services
             </h2>
@@ -430,60 +590,61 @@ export default function NewAppointment() {
               </div>
             )}
 
-            {/* Picker row */}
-            <div className="flex flex-wrap gap-3 mb-4">
-              <select
-                value={pickService}
-                onChange={e => setPickService(e.target.value)}
-                className="luxury-input !w-auto grow sm:grow-0 sm:min-w-[220px]"
-                aria-label="Service"
+            {/* Picker — custom dropdowns that always expand downward (a
+                native <select> pops up near the viewport bottom), plus the
+                three-state action button mirroring the Flutter admin app:
+                Add service → Now pick a stylist → Confirm <service> ·
+                <stylist>. The label always names the next action; the gold
+                state is the explicit "done" step. */}
+            <div className="grid gap-3 sm:grid-cols-2 mb-3">
+              <Dropdown
+                ariaLabel="Service"
+                placeholder={audience ? 'Select service…' : 'Pick an audience first…'}
                 disabled={!audience}
-              >
-                <option value="">{audience ? 'Select service…' : 'Pick an audience first…'}</option>
-                {audience === 'kids' ? (
-                  <>
-                    <optgroup label="For boys">
-                      {filteredServices.filter(s => s.kid_gender === 'boy').map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} · {s.duration_mins}m · ₹{s.price}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="For girls">
-                      {filteredServices.filter(s => s.kid_gender === 'girl').map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} · {s.duration_mins}m · ₹{s.price}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </>
-                ) : (
-                  filteredServices.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} · {s.duration_mins}m · ₹{s.price}
-                    </option>
-                  ))
-                )}
-              </select>
-              <select
-                value={pickStylist}
-                onChange={e => setPickStylist(e.target.value)}
-                className="luxury-input !w-auto grow sm:grow-0 sm:min-w-[180px]"
-                aria-label="Stylist"
+                value={pickService}
+                onChange={setPickService}
+                groups={serviceGroups}
+              />
+              <Dropdown
+                ariaLabel="Stylist"
+                placeholder="Select stylist…"
                 disabled={!pickService}
-              >
-                <option value="">Select stylist…</option>
-                {eligibleStylists.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={addItem}
-                className="btn-outline !px-4 !py-2.5 text-sm inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" /> Add
-              </button>
+                value={pickStylist}
+                onChange={setPickStylist}
+                groups={[{ label: '', options: eligibleStylists.map(s => ({ value: s.id, label: s.name })) }]}
+              />
+            </div>
+
+            {/* 200ms fade between button states (state swaps are user-paced,
+                not rapid — a short fade reads as one control changing mind,
+                not three different controls). */}
+            <div key={`${pickService}|${pickStylist}`} className="mb-4 animate-[fadeIn_200ms_ease-out]">
+              {!pickService ? (
+                <button
+                  type="button"
+                  disabled
+                  className="btn-outline w-full !py-2.5 text-sm inline-flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
+                >
+                  <Plus className="w-4 h-4" /> Add service
+                </button>
+              ) : !pickStylist ? (
+                <button
+                  type="button"
+                  disabled
+                  className="btn-outline w-full !py-2.5 text-sm inline-flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
+                >
+                  <User className="w-4 h-4" /> Now pick a stylist
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="btn-gold w-full !py-2.5 text-sm inline-flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Confirm {serviceById(pickService)?.name} · {stylistById(pickStylist)?.name}
+                </button>
+              )}
             </div>
 
             {/* Selected items */}
@@ -556,6 +717,8 @@ export default function NewAppointment() {
                     const idx = ALL_SLOTS.indexOf(t)
                     const fitsClosing = idx + blockSlots <= ALL_SLOTS.length
                     const passed = isPassed(t)
+                    // Late = past the 10-min cutoff but seatable via override.
+                    const late = !passed && isToday && toMins(t) - istNowMins() < 10
                     // Strike-through = already booked; dimmed without strike
                     // = won't fit before closing / already passed.
                     const taken = fitsClosing && !passed && !viableStarts.has(t)
@@ -570,18 +733,22 @@ export default function NewAppointment() {
                         title={taken
                           ? 'Already booked'
                           : passed
-                            ? 'Already passed'
-                            : !fitsClosing
-                              ? "Won't fit before closing"
-                              : ''}
+                            ? 'Booking closed — starts in under 10 minutes (turn on Walk-in override to seat anyway)'
+                            : late
+                              ? 'Late seating — walk-in override active'
+                              : !fitsClosing
+                                ? "Won't fit before closing"
+                                : ''}
                         className={`py-2 text-xs rounded-lg border transition-colors duration-200 ${
                           selected
                             ? 'bg-gold-gradient text-emerald-950 border-gold-500 font-semibold'
-                            : selectable
-                              ? 'border-emerald-700 text-cream hover:border-gold-500/60'
-                              : passed || !fitsClosing
-                                ? 'border-emerald-800/50 text-emerald-700/60 cursor-not-allowed'
-                                : 'border-emerald-800/50 text-emerald-700 line-through cursor-not-allowed'
+                            : selectable && late
+                              ? 'border-amber-500/70 text-amber-300 hover:border-amber-400'
+                              : selectable
+                                ? 'border-emerald-700 text-cream hover:border-gold-500/60'
+                                : passed || !fitsClosing
+                                  ? 'border-emerald-800/50 text-emerald-700/60 cursor-not-allowed'
+                                  : 'border-emerald-800/50 text-emerald-700 line-through cursor-not-allowed'
                         }`}
                       >
                         {fmtTime(t)}
@@ -627,6 +794,21 @@ export default function NewAppointment() {
                 )}
               </>
             )}
+
+            {/* Walk-in override — seat a customer in a started/passed slot */}
+            <label className="flex items-center gap-3 mt-6 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={ignoreCutoff}
+                onChange={e => setIgnoreCutoff(e.target.checked)}
+                className="w-4 h-4 accent-[#c9a84c]"
+              />
+              <span className="text-cream text-sm inline-flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-400" />
+                Walk-in override
+                <span className="text-amber-400/80 text-xs">(allow booking a slot that already started today)</span>
+              </span>
+            </label>
 
             {/* Confirm-now toggle */}
             <label className="flex items-center gap-3 mt-6 cursor-pointer select-none">

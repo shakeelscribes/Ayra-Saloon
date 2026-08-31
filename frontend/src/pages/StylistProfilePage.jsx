@@ -30,13 +30,13 @@ export default function StylistProfilePage() {
   const stylist = getStylistBySlug(slug)
 
   const metaTitle = stylist
-    ? `${stylist.name} — ${stylist.role} | Ayra Saloon Tirunelveli`
-    : 'Ayra Saloon Team'
+    ? `${stylist.name} — ${stylist.role} | Ayra Unisex Salon Tirunelveli`
+    : 'Ayra Unisex Salon Team'
 
   usePageMeta({
     title: metaTitle,
     description: stylist
-      ? `${stylist.name}, ${stylist.role.toLowerCase()} at Ayra Saloon Tirunelveli. ${stylist.tagline} Book your chair online.`
+      ? `${stylist.name}, ${stylist.role.toLowerCase()} at Ayra Unisex Salon Tirunelveli. ${stylist.tagline} Book your chair online.`
       : undefined,
   })
 
@@ -52,7 +52,7 @@ export default function StylistProfilePage() {
       name: stylist.name,
       jobTitle: stylist.role,
       description: stylist.bio[0],
-      worksFor: { '@type': 'HairSalon', name: 'Ayra Saloon', address: 'Tirunelveli, Tamil Nadu, India' },
+      worksFor: { '@type': 'HairSalon', name: 'Ayra Unisex Salon', address: 'Tirunelveli, Tamil Nadu, India' },
       knowsAbout: stylist.specialties,
     })
     document.head.appendChild(script)

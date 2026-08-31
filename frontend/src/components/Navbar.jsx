@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Scissors, Menu, X } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Navbar() {
@@ -43,14 +43,22 @@ export default function Navbar() {
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-[background-color,border-color,box-shadow] duration-300 ${navMaterial}`}>
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-full bg-gold-gradient flex items-center justify-center">
-            <Scissors className="w-5 h-5 text-emerald-950" />
-          </div>
-          <span className="font-display text-2xl text-cream tracking-wide">
-            Ayra <span className="text-gold-400">Saloon</span>
-          </span>
+        {/* Logo — official brand assets: emblem + wordmark (gold on
+            transparent, so they sit cleanly on both the clear and the
+            scrolled glass navbar). */}
+        <Link to="/" className="flex items-center gap-3 group" aria-label="Ayra Unisex Salon — home">
+          <img
+            src="/brand/ayra-mark.png"
+            alt=""
+            draggable={false}
+            className="h-11 w-11 object-contain transition-transform duration-300 group-hover:scale-105"
+          />
+          <img
+            src="/brand/ayra-wordmark.png"
+            alt="Ayra — Unisex Salon"
+            draggable={false}
+            className="h-9 w-auto transition-opacity duration-300 group-hover:opacity-90"
+          />
         </Link>
 
         {/* Desktop Nav — two groups (site / account) split by a hairline.

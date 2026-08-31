@@ -61,7 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Eyebrow('Ayra Saloon'),
+                  const Eyebrow('Ayra Unisex Salon'),
                   const SizedBox(height: 8),
                   Text('Staff Panel',
                       style: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(fontSize: 40)),

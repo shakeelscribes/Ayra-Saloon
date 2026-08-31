@@ -9,7 +9,7 @@ export default function Monogram({ name, photo, size = 'lg' }) {
     return (
       <img
         src={photo}
-        alt={`${name}, stylist at Ayra Saloon`}
+        alt={`${name}, stylist at Ayra Unisex Salon`}
         className={`${dims} rounded-full object-cover border-2 border-gold-500/60 shadow-xl shadow-black/40`}
       />
     )

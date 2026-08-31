@@ -1,4 +1,4 @@
-/// Ayra Saloon visual language — mirrors frontend-admin/tailwind.config.js.
+/// Ayra Unisex Salon visual language — mirrors frontend-admin/tailwind.config.js.
 /// Emerald 950 scaffold, gold accents, cream text; Cormorant Garamond for
 /// display type, Jost for body.
 library;

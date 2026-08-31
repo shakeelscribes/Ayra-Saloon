@@ -90,9 +90,9 @@ function StylistCard({ stylist, index }) {
 
 export default function StylistsPage() {
   usePageMeta({
-    title: 'Meet Our Stylists | Ayra Saloon Tirunelveli',
+    title: 'Meet Our Stylists | Ayra Unisex Salon Tirunelveli',
     description:
-      'Meet Raja and Ajay — the stylists behind Ayra Saloon, Tirunelveli. Precision fades, beard sculpting and custom tattoos with zero attitude. Book your chair online.',
+      'Meet Raja and Ajay — the stylists behind Ayra Unisex Salon, Tirunelveli. Precision fades, beard sculpting and custom tattoos with zero attitude. Book your chair online.',
   })
 
   return (

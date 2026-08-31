@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, User, Phone, Plus, Trash2, CheckCircle2, Calendar, Search, Clock, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Scissors, User, Phone, Mail, Plus, Trash2, CheckCircle2, Calendar, Search, Clock, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
 
@@ -212,6 +212,8 @@ export default function NewAppointment() {
   // Customer
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  // Optional — only used for the calendar invite email (never required)
+  const [email, setEmail] = useState('')
 
   // Catalog
   const [services, setServices] = useState([])
@@ -439,6 +441,7 @@ export default function NewAppointment() {
     e.preventDefault()
     if (!name.trim()) { toast.error('Customer name is required'); return }
     if (phone.replace(/\D/g, '').length < 10) { toast.error('A valid 10-digit phone number is required'); return }
+    if (email.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())) { toast.error('That email doesn\'t look right'); return }
     if (items.length === 0) { toast.error('Add at least one service'); return }
     if (!start) { toast.error('Pick a start time'); return }
     setSaving(true)
@@ -446,6 +449,7 @@ export default function NewAppointment() {
       await client.post('/bookings/admin/create', {
         customer_name: name.trim(),
         phone: phone.trim(),
+        customer_email: email.trim() || null,
         items: items.map(i => ({ service_id: i.service_id, stylist_id: i.stylist_id })),
         date,
         time_slot: start,
@@ -512,6 +516,22 @@ export default function NewAppointment() {
                   Existing customers are matched by number — new ones get an account automatically.
                 </p>
               </div>
+            </div>
+            <div className="mt-4">
+              <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="wa-email">
+                <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Email <span className="text-emerald-500 normal-case">(optional)</span></span>
+              </label>
+              <input
+                id="wa-email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="customer@email.com"
+                className="luxury-input"
+              />
+              <p className="text-emerald-500 text-[11px] mt-1.5">
+                Used to send a calendar invite when the appointment is confirmed.
+              </p>
             </div>
           </div>
 

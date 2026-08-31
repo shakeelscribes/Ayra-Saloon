@@ -10,8 +10,8 @@ const EASE_OUT = [0.16, 1, 0.3, 1]
 
 export default function ProfilePage() {
   usePageMeta({
-    title: 'My Profile | Ayra Saloon Tirunelveli',
-    description: 'Manage your Ayra Saloon profile — name, WhatsApp number and preferences.',
+    title: 'My Profile | Ayra Unisex Salon Tirunelveli',
+    description: 'Manage your Ayra Unisex Salon profile — name, WhatsApp number and preferences.',
   })
 
   const { user, updateUser } = useAuth()

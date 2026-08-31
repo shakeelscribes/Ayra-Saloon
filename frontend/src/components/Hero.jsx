@@ -51,7 +51,7 @@ export default function Hero() {
             transition={{ duration: 0.5, ease: 'ease-out', delay: 0.1 }}
             className="text-gold-400 text-xs md:text-sm font-medium tracking-[0.25em] uppercase mb-6"
           >
-            Ayra Saloon · Samathanapuram, Tirunelveli
+            Ayra Unisex Salon · Samathanapuram, Tirunelveli
           </motion.p>
 
           <h1 className="font-display text-cream text-[clamp(2.75rem,8vw,6.5rem)] leading-[1.02] tracking-[-0.02em] max-w-4xl">
@@ -67,7 +67,7 @@ export default function Hero() {
             transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.45 }}
             className="mt-6 max-w-xl text-base md:text-lg leading-relaxed text-cream/85"
           >
-            Tirunelveli's modern unisex saloon — expert stylists, up-to-date
+            Tirunelveli's modern unisex salon — expert stylists, up-to-date
             equipment, and sharp grooming for everyone at prices that make
             sense.
           </motion.p>

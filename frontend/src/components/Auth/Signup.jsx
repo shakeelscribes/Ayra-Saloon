@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Mail, Lock, User, Phone, Eye, EyeOff, Scissors } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 export default function Signup() {
   const { register } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', gender: '' })
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -19,8 +20,10 @@ export default function Signup() {
     setLoading(true)
     try {
       const user = await register(form.name, form.email, form.password, form.phone, form.gender)
-      toast.success(`Welcome to Ayra Saloon, ${user.name}!`)
-      navigate('/')
+      toast.success(`Welcome to Ayra Unisex Salon, ${user.name}!`)
+      // Only same-site paths (?redirect=/book) — never an open redirect.
+      const redirect = searchParams.get('redirect')
+      navigate(redirect && redirect.startsWith('/') ? redirect : '/')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Registration failed')
     } finally {
@@ -46,7 +49,7 @@ export default function Signup() {
           </div>
           <h1 className="font-display text-3xl text-cream">Create Account</h1>
           <div className="gold-divider" />
-          <p className="text-emerald-300 text-sm mt-2">Join Ayra Saloon — modern grooming for everyone</p>
+          <p className="text-emerald-300 text-sm mt-2">Join Ayra Unisex Salon — modern grooming for everyone</p>
         </div>
 
         <div className="glass-card p-8">

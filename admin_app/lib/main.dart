@@ -23,7 +23,7 @@ class AyraAdmin extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ayra Saloon — Staff',
+      title: 'Ayra Unisex Salon — Staff',
       debugShowCheckedModeBanner: false,
       theme: buildAyraTheme(),
       home: startLoggedIn ? const HomeShell() : const LoginScreen(),

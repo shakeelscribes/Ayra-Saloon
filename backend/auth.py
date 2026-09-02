@@ -53,3 +53,27 @@ def get_current_admin(current_user: models.User = Depends(get_current_user)):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+def get_current_stylist_user(current_user: models.User = Depends(get_current_admin)):
+    """Staff account WITH a stylist link — time-off marking is self-service,
+    so the owner (no stylist_id) has nothing to mark here."""
+    if not current_user.stylist_id:
+        raise HTTPException(status_code=403, detail="Stylist account required")
+    return current_user
+
+
+async def can_act_on_booking(user: models.User, booking: models.Booking) -> bool:
+    """Owner admins act on every booking; stylist staff act ONLY on bookings
+    that involve their own chair (primary stylist or any slot row)."""
+    if not user.is_admin:
+        return False
+    if not user.stylist_id:
+        return True
+    if booking.stylist_id == user.stylist_id:
+        return True
+    slot = await models.BookingSlot.find_one(
+        models.BookingSlot.booking_id == booking.id,
+        models.BookingSlot.stylist_id == user.stylist_id,
+    )
+    return slot is not None

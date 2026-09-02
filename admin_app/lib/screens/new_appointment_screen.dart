@@ -39,19 +39,22 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
 
   DateTime _date = DateTime.now();
   String? _start;
-  Map<String, List<m.BusyInterval>> _avail = {};
+  Map<String, m.AvailabilityResult> _avail = {};
   bool _availLoading = false;
   bool _confirmNow = true;
   // Walk-in override: seat a customer in a started/passed slot today.
   // Waives only the 10-min booking cutoff — never conflicts or past dates.
   bool _ignoreCutoff = false;
   bool _saving = false;
+  // Off-day roster for the picked date — fail-open (everyone working).
+  m.StylistsAvailable? _roster;
 
   @override
   void initState() {
     super.initState();
     _audience = _sessionAudience;
     _loadCatalog();
+    _loadRoster();
   }
 
   @override
@@ -100,17 +103,6 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
     return null;
   }
 
-  /// Specialists first; if the category has no specialist at all, everyone
-  /// qualifies (backend fallback, mirrored from the web panel).
-  List<m.StylistModel> get _eligibleStylists {
-    final svc = _pickedService;
-    if (svc == null) return _stylists;
-    final specialists = _stylists
-        .where((s) => s.categories.contains(svc.category))
-        .toList();
-    return specialists.isNotEmpty ? specialists : _stylists;
-  }
-
   /// Hard audience rules — mirrors the user panel's Services filter: kids
   /// shows only for_kids services; men/women exclude kids services and
   /// audience mismatches (unisex always passes).
@@ -119,6 +111,71 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
     final mismatch =
         _audience != null && s.audience != 'unisex' && s.audience != _audience;
     return !mismatch && !s.forKids;
+  }
+
+  /// Off-day roster for [_dateStr] — fail-open: on error, treat everyone as
+  /// working so a transient API failure never blocks walk-ins.
+  Future<void> _loadRoster() async {
+    try {
+      final r = await Api.instance.stylistsAvailable(_dateStr);
+      if (!mounted) return;
+      setState(() => _roster = r);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _roster = null);
+    }
+  }
+
+  /// Stylists working on [_dateStr] (off roster is a hard filter, fail-open).
+  Set<String> get _workingStylistIds {
+    final r = _roster;
+    if (r == null) return _stylists.map((s) => s.id).toSet();
+    return r.working.map((w) => w.stylist.id).toSet();
+  }
+
+  /// Services still bookable for [_dateStr]: hidden when their category has
+  /// specialists overall but none working today (off-day rule mirrors the
+  /// user panel wizard). Stylist logins additionally only see services their
+  /// own chair can perform.
+  List<m.ServiceModel> get _bookableServices {
+    final working = _workingStylistIds;
+    final me = Api.instance.user;
+    final ownId = (me != null && me.isStylist) ? me.stylistId : null;
+    if (working.length >= _stylists.length && ownId == null) return _services;
+    return _services.where((s) {
+      final specialists = _stylists
+          .where((st) => st.categories.contains(s.category))
+          .toList();
+      // No specialist at all → open to everyone (backend fallback rule).
+      if (specialists.isEmpty) return true;
+      if (ownId != null) {
+        return specialists.any((st) => st.id == ownId) &&
+            working.contains(ownId);
+      }
+      return specialists.any((st) => working.contains(st.id));
+    }).toList();
+  }
+
+  /// Own-chair rule: a stylist-role admin only ever books their own chair.
+  List<m.StylistModel> get _scopedStylists {
+    final me = Api.instance.user;
+    if (me == null || !me.isStylist || me.stylistId == null) return _stylists;
+    final mine =
+        _stylists.where((s) => s.id == me.stylistId).toList();
+    return mine.isNotEmpty ? mine : _stylists;
+  }
+
+  /// Eligible stylists for the picked service: own-chair scope ∩ working
+  /// today ∩ specialists (empty specialists → everyone, backend fallback).
+  List<m.StylistModel> get _eligibleStylists {
+    final pool = _scopedStylists
+        .where((s) => _workingStylistIds.contains(s.id))
+        .toList();
+    final svc = _pickedService;
+    if (svc == null) return pool;
+    final specialists =
+        pool.where((s) => s.categories.contains(svc.category)).toList();
+    return specialists.isNotEmpty ? specialists : pool;
   }
 
   /// Audience switches prune the cart — a mismatched service would 409 the
@@ -142,10 +199,28 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
     if (pruned) _loadAvailability();
   }
 
+  /// Drop cart items (and the in-flight pick) that are no longer bookable —
+  /// audience switch, off-day hiding, or own-chair scope changed the pool.
+  void _pruneBookable() {
+    final pool = _bookableServices.map((s) => s.id).toSet();
+    var pruned = false;
+    setState(() {
+      final before = _items.length;
+      _items.removeWhere((i) => !pool.contains(i.service.id));
+      pruned = _items.length != before;
+      final picked = _pickedService;
+      if (picked != null && !pool.contains(picked.id)) {
+        _pickServiceId = null;
+        _pickStylistId = null;
+      }
+    });
+    if (pruned) _loadAvailability();
+  }
+
   Future<void> _openPicker() async {
     final picked = await showServicePickerSheet(
       context,
-      services: _services,
+      services: _bookableServices,
       audience: _audience,
       selected: _pickedService,
     );
@@ -166,6 +241,16 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
     if (svc == null || sty == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pick a service and a stylist first')),
+      );
+      return;
+    }
+    // The picked stylist must be in the eligible pool (working today, own
+    // chair for stylist logins, specialist fallback respected).
+    if (!_eligibleStylists.any((s) => s.id == sty!.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That stylist is not available for this service today'),
+        ),
       );
       return;
     }
@@ -235,6 +320,10 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
     );
     if (picked == null || picked == _date) return;
     setState(() => _date = picked);
+    _loadRoster();
+    // New day = new working roster — prune services that became hidden and
+    // refresh the availability map for the remaining stylists.
+    _pruneBookable();
     _loadAvailability();
   }
 
@@ -333,7 +422,16 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
           ),
         )
         .toList();
-    List<m.BusyInterval> busyFor(String id) => _avail[id] ?? [];
+    List<m.BusyInterval> busyFor(String id) {
+      final r = _avail[id];
+      if (r == null) return const [];
+      // Stylist marked off → whole day blocked (defensive; the roster filter
+      // should already have kept them out of the eligible pool).
+      if (r.stylistOff) {
+        return [m.BusyInterval(start: '10:00', end: '21:00')];
+      }
+      return r.busy;
+    }
     final viable = _items.isEmpty || _availLoading
         ? <String>{}
         : viableStartsFor(busyFor, rows);
@@ -375,6 +473,14 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
         if (res.ok) visitPlan = res.plan;
       }
     }
+
+    // Amber off-notice — who is off on the picked date (mirrors the web
+    // panel's Schedule-card note). Empty when everyone works.
+    final offNames = () {
+      final r = _roster;
+      if (r == null || r.off.isEmpty) return <String>[];
+      return r.off.map((s) => s.stylist.name).toList();
+    }();
 
     return Scaffold(
       backgroundColor: emerald950,
@@ -664,6 +770,15 @@ class _NewAppointmentScreenState extends State<NewAppointmentScreen> {
                         ),
                       ),
                     ),
+                    if (offNames.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Off $_dateStr: ${offNames.join(', ')}'
+                        ' — their exclusive services are hidden.',
+                        style: const TextStyle(
+                            color: amber400, fontSize: 11.5),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     const Text(
                       'Start time',

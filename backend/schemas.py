@@ -22,6 +22,10 @@ class UserOut(BaseModel):
     phone: Optional[str]
     gender: Optional[str] = None
     is_admin: bool
+    # Staff identity: set on stylist accounts. role is derived server-side —
+    # "owner" (is_admin, no stylist link) or "stylist" (is_admin + link).
+    stylist_id: Optional[PydanticObjectId] = None
+    role: str = "customer"
     model_config = {"from_attributes": True}
 
 class TokenResponse(BaseModel):
@@ -53,6 +57,84 @@ class StylistOut(BaseModel):
     experience_years: int
     categories: List[str] = []
     model_config = {"from_attributes": True}
+
+class StylistAvailabilityOut(BaseModel):
+    """One stylist's working status for a specific date."""
+    stylist: StylistOut
+    is_off: bool = False
+
+class StylistsAvailableResponse(BaseModel):
+    date: str
+    working: List[StylistAvailabilityOut] = []
+    off: List[StylistAvailabilityOut] = []   # off that day — UI hides + shows notice
+
+# ── Time off ──────────────────────────────────────────────────────────────────
+class TimeOffCreate(BaseModel):
+    start: str              # "YYYY-MM-DD" inclusive
+    end: str                # "YYYY-MM-DD" inclusive
+    reason: Optional[str] = None
+
+class TimeOffOut(BaseModel):
+    id: PydanticObjectId
+    stylist_id: PydanticObjectId
+    start: str
+    end: str
+    reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+# ── Economy ───────────────────────────────────────────────────────────────────
+class ExpenseCreate(BaseModel):
+    date: str               # "YYYY-MM-DD"
+    category: str
+    description: Optional[str] = None
+    amount: float
+
+class ExpenseOut(BaseModel):
+    id: PydanticObjectId
+    date: str
+    category: str
+    description: Optional[str] = None
+    amount: float
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+class BudgetTargetIn(BaseModel):
+    category: str
+    amount: float
+
+class BudgetTargetOut(BaseModel):
+    id: PydanticObjectId
+    month: str
+    category: str
+    amount: float
+    model_config = {"from_attributes": True}
+
+class BudgetCategoryStatus(BaseModel):
+    category: str
+    target: float = 0
+    spent: float = 0
+
+class BudgetResponse(BaseModel):
+    month: str
+    categories: List[BudgetCategoryStatus] = []
+
+class EconomySummary(BaseModel):
+    from_date: str
+    to_date: str
+    income: float = 0
+    expenses: float = 0
+    net: float = 0
+    bookings_total: int = 0
+    bookings_confirmed: int = 0
+    bookings_cancelled: int = 0
+    bookings_declined: int = 0
+    walk_ins: int = 0
+    online: int = 0
+    income_by_category: dict = {}       # service category -> sum
+    income_by_stylist: dict = {}        # stylist name -> sum
+    expenses_by_category: dict = {}     # expense category -> sum
+    daily: List[dict] = []              # [{date, income, expense}] for charts
 
 # ── Bookings ──────────────────────────────────────────────────────────────────
 class BookingItem(BaseModel):
@@ -134,6 +216,7 @@ class AvailabilityResponse(BaseModel):
     stylist_id: PydanticObjectId
     date: str
     busy: List[BusyInterval] = []   # booked windows; everything else is free
+    stylist_off: bool = False       # True = stylist marked this date off — no slots at all
 
 class RescheduleProposal(BaseModel):
     date: str              # "YYYY-MM-DD"

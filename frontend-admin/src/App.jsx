@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import NewAppointment from './components/NewAppointment'
+import TimeOff from './components/TimeOff'
+import Economy from './components/Economy'
 
 // Staff panel guard — the panel only ever renders for authenticated admins.
 function AdminRoute({ children }) {
@@ -21,6 +23,8 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
           <Route path="/new-appointment" element={<AdminRoute><NewAppointment /></AdminRoute>} />
+          <Route path="/time-off" element={<AdminRoute><TimeOff /></AdminRoute>} />
+          <Route path="/economy" element={<AdminRoute><Economy /></AdminRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <Toaster

@@ -94,6 +94,7 @@ from routes.availability import router as availability_router
 from routes.bookings import router as bookings_router, write_history, write_notification
 from routes.notifications import router as notifications_router
 from routes.users import router as users_router
+from routes.economy import router as economy_router
 
 app.include_router(auth_router)
 app.include_router(services_router)
@@ -102,6 +103,7 @@ app.include_router(availability_router)
 app.include_router(bookings_router)
 app.include_router(notifications_router)
 app.include_router(users_router)
+app.include_router(economy_router)
 
 # ── Seed database with initial data ───────────────────────────────────────────
 from auth import get_password_hash
@@ -437,6 +439,45 @@ async def seed_data():
             )
             await admin.insert()
             print(f"Seeded admin admin@ayrasaloon.com with initial password: {seed_pw}", flush=True)
+
+        # ── Stylist staff accounts — one login per chair ─────────────────────
+        # raja@ / ajay@ by default; override with STYLIST_SEED_EMAILS
+        # ("Raja email,Ajay email", aligned with STYLIST_TEAM order) when the
+        # real addresses are decided. Passwords: STYLIST_SEED_PASSWORDS (same
+        # order, comma separated) or one random secret printed ONCE. Created
+        # only when missing — an existing account (e.g. renamed email) keeps
+        # its password and just re-links to the stylist doc.
+        stylists_now = await models.Stylist.find_all().to_list()
+        by_name = {s.name: s for s in stylists_now}
+        seed_emails = [e.strip() for e in os.getenv(
+            "STYLIST_SEED_EMAILS", "raja@ayrasaloon.com,ajay@ayrasaloon.com").split(",")
+            if e.strip()]
+        seed_passwords = [p.strip() for p in os.getenv(
+            "STYLIST_SEED_PASSWORDS", "").split(",") if p.strip()]
+        for idx, item in enumerate(STYLIST_TEAM):
+            stylist_doc = by_name.get(item["name"])
+            if not stylist_doc:
+                continue  # seed above guarantees the doc; belt and braces
+            linked = await models.User.find_one(
+                models.User.stylist_id == stylist_doc.id)
+            if linked:
+                continue
+            email = seed_emails[idx] if idx < len(seed_emails) else f"{item['name'].lower()}@ayrasaloon.com"
+            if await models.User.find_one(models.User.email == email):
+                print(f"Staff seed: email {email} already used by another account — skipping.", flush=True)
+                continue
+            pw = (seed_passwords[idx] if idx < len(seed_passwords)
+                  else seed_passwords[0] if seed_passwords else secrets.token_urlsafe(12))
+            staff = models.User(
+                name=item["name"],
+                email=email,
+                hashed_password=get_password_hash(pw),
+                is_admin=True,
+                stylist_id=stylist_doc.id,
+            )
+            await staff.insert()
+            print(f"Seeded stylist staff account {email} (linked to {item['name']}) "
+                  f"with initial password: {pw}", flush=True)
     except Exception as e:
         print(f"Error seeding data: {e}", flush=True)
 

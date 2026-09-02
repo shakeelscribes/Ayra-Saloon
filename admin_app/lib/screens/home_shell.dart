@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../theme.dart';
 import 'dashboard_screen.dart';
+import 'economy_screen.dart';
 import 'login_screen.dart';
 import 'new_appointment_screen.dart';
+import 'timeoff_screen.dart';
 import 'whatsapp_screen.dart';
 
-/// Bottom-nav shell: Dashboard · New · WhatsApp. Any screen can trigger a
-/// global refresh via [refreshAll] after a mutation.
+/// Bottom-nav shell: Dashboard · New · Time Off · Economy · WhatsApp. Any
+/// screen can trigger a global refresh via [refreshAll] after a mutation.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -21,11 +23,14 @@ class HomeShellState extends State<HomeShell> {
   int _lastTab = 0;
   final GlobalKey<DashboardScreenState> _dashboardKey = GlobalKey();
   final GlobalKey<WhatsAppScreenState> _whatsappKey = GlobalKey();
-
+  final GlobalKey<TimeOffScreenState> _timeOffKey = GlobalKey();
+  final GlobalKey<EconomyScreenState> _economyKey = GlobalKey();
   /// Called by child screens after mutations so all tabs refetch.
   void refreshAll() {
     _dashboardKey.currentState?.refresh();
     _whatsappKey.currentState?.refresh();
+    _timeOffKey.currentState?.refresh();
+    _economyKey.currentState?.refresh();
   }
 
   Future<void> handleAuthError() async {
@@ -42,6 +47,8 @@ class HomeShellState extends State<HomeShell> {
     final screens = [
       DashboardScreen(key: _dashboardKey, shell: this),
       NewAppointmentScreen(shell: this),
+      TimeOffScreen(key: _timeOffKey, shell: this),
+      EconomyScreen(key: _economyKey, shell: this),
       WhatsAppScreen(key: _whatsappKey, shell: this),
     ];
     return Scaffold(
@@ -77,6 +84,16 @@ class HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.add_circle_outline),
             selectedIcon: Icon(Icons.add_circle),
             label: 'New',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.event_busy_outlined),
+            selectedIcon: Icon(Icons.event_busy),
+            label: 'Time Off',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.currency_rupee_outlined),
+            selectedIcon: Icon(Icons.currency_rupee),
+            label: 'Economy',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, User, Phone, Mail, Plus, Trash2, CheckCircle2, Calendar, Search, Clock, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Scissors, User, Phone, Mail, Plus, Trash2, CheckCircle2, Calendar, CalendarOff, Search, Clock, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 /* Salon day grid — mirrors backend/routes/availability.py ALL_SLOTS. */
 const ALL_SLOTS = Array.from({ length: 11 }, (_, i) => `${10 + i}:00`)
@@ -208,6 +209,9 @@ function Dropdown({ value, onChange, groups, placeholder, disabled, ariaLabel, c
 
 export default function NewAppointment() {
   const navigate = useNavigate()
+  // Stylist accounts can only book their own chair (server enforces the same
+  // rule on /bookings/admin/create); the owner books anyone.
+  const { role, stylistId } = useAuth()
 
   // Customer
   const [name, setName] = useState('')
@@ -218,6 +222,14 @@ export default function NewAppointment() {
   // Catalog
   const [services, setServices] = useState([])
   const [stylists, setStylists] = useState([])
+
+  // Off-day awareness for the chosen date — mirrors the customer wizard:
+  // /stylists/available splits working vs off for ONE date. Services whose
+  // only specialists are off get hidden, off stylists leave the picker, and
+  // items pointing at them are pruned when the date changes.
+  const [availableForDate, setAvailableForDate] = useState(null)
+  const [workingStylists, setWorkingStylists] = useState([])
+  const [offStylists, setOffStylists] = useState([])
 
   // Selected items: [{ service_id, stylist_id }] with resolved objects for UI
   const [items, setItems] = useState([])
@@ -258,26 +270,85 @@ export default function NewAppointment() {
     })
   }, [])
 
+  // Working vs off stylists for the chosen date. Fail-open: on error keep
+  // the full roster so a network blip never empties the menu.
+  useEffect(() => {
+    if (!date) return
+    const controller = new AbortController()
+    client.get(`/stylists/available?date=${date}`, { signal: controller.signal })
+      .then(r => {
+        if (controller.signal.aborted) return
+        setWorkingStylists((r.data.working || []).map(e => e.stylist))
+        setOffStylists((r.data.off || []).map(e => e.stylist))
+        setAvailableForDate(date)
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setWorkingStylists(stylists)
+        setOffStylists([])
+        setAvailableForDate(date)
+      })
+    return () => controller.abort()
+  }, [date, stylists])
+
   const serviceById = (id) => services.find(s => String(s.id) === String(id))
   const stylistById = (id) => stylists.find(s => String(s.id) === String(id))
 
   // Stylists who can take the picked service — specialists first; if the
   // category has no specialist at all, everyone qualifies (backend fallback).
+  // Off stylists are excluded for the chosen date; a stylist account only
+  // ever sees their own chair.
   const eligibleStylists = useMemo(() => {
+    let pool = availableForDate === date ? workingStylists : stylists
+    if (role === 'stylist') {
+      const mine = pool.filter(s => String(s.id) === String(stylistId))
+      pool = mine.length > 0 ? mine : []
+    }
     const svc = serviceById(pickService)
-    if (!svc) return stylists
-    const specialists = stylists.filter(s => (s.categories || []).includes(svc.category))
-    return specialists.length > 0 ? specialists : stylists
-  }, [pickService, services, stylists])
+    if (!svc) return pool
+    const specialists = pool.filter(s => (s.categories || []).includes(svc.category))
+    return specialists.length > 0 ? specialists : pool
+  }, [pickService, services, stylists, workingStylists, availableForDate, date, role, stylistId])
 
   // Reset the stylist pick when the service changes and the pick is ineligible
   useEffect(() => { setPickStylist('') }, [pickService])
+
+  // Date changes prune the cart — an item whose stylist is off (or whose
+  // service is unbookable that day) would 409 the whole booking at submit.
+  // Mirrors the user panel's date-prune effect.
+  useEffect(() => {
+    if (availableForDate !== date) return
+    const workingIds = new Set(workingStylists.map(s => String(s.id)))
+    const workingCats = new Set(workingStylists.flatMap(s => s.categories || []))
+    const allCats = new Set(stylists.flatMap(s => s.categories || []))
+    const keep = items.filter(i =>
+      workingIds.has(String(i.stylist_id)) &&
+      (!allCats.has(i.service?.category) || workingCats.has(i.service?.category)))
+    const picked = serviceById(pickService)
+    const pickSvcBad = picked && allCats.has(picked.category) && !workingCats.has(picked.category)
+    const pickStyBad = pickStylist && !workingIds.has(String(pickStylist))
+    if (keep.length === items.length && !pickSvcBad && !pickStyBad) return
+    if (keep.length !== items.length) setItems(keep)
+    if (pickSvcBad) { setPickService(''); setPickStylist('') }
+    else if (pickStyBad) setPickStylist('')
+  }, [date, availableForDate, workingStylists, stylists, items, pickService, pickStylist])
+
+  // Services bookable on the chosen date — a service whose category has
+  // specialists on the roster but NONE working today is hidden (mirrors the
+  // customer wizard). Categories with no specialist at all stay, so the
+  // any-stylist fallback still has something to serve.
+  const bookableServices = useMemo(() => {
+    if (availableForDate !== date) return services
+    const workingCats = new Set(workingStylists.flatMap(s => s.categories || []))
+    const allCats = new Set(stylists.flatMap(s => s.categories || []))
+    return services.filter(s => !allCats.has(s.category) || workingCats.has(s.category))
+  }, [services, date, availableForDate, workingStylists, stylists])
 
   // Service list filtered by audience + search + category, then sorted —
   // mirrors the user panel's ServiceList pipeline ("Recommended" = most
   // popular first; ties keep catalog order, same as the user panel).
   const filteredServices = useMemo(() => {
-    let list = services.filter(s => matchesAudience(audience, s))
+    let list = bookableServices.filter(s => matchesAudience(audience, s))
     if (audience !== 'kids' && svcCategory !== 'all') {
       list = list.filter(s => s.category === svcCategory)
     }
@@ -296,7 +367,7 @@ export default function NewAppointment() {
       default: sorted.sort((a, b) => (b.popularity ?? 50) - (a.popularity ?? 50))
     }
     return sorted
-  }, [services, audience, svcCategory, svcQuery, svcSort])
+  }, [bookableServices, audience, svcCategory, svcQuery, svcSort])
 
   // Dropdown option groups — kids split into For boys / For girls (same
   // grouping the old <optgroup>s had); everyone else is one flat list.
@@ -315,14 +386,14 @@ export default function NewAppointment() {
   // Per-tab counts so the admin sees how many services live in each
   // category before tapping (adult flow only).
   const tabCounts = useMemo(() => {
-    const base = services.filter(s => matchesAudience(audience, s))
+    const base = bookableServices.filter(s => matchesAudience(audience, s))
     const counts = { all: base.length }
     for (const t of CATEGORY_TABS) {
       if (t.id === 'all') continue
       counts[t.id] = base.filter(s => s.category === t.id).length
     }
     return counts
-  }, [services, audience])
+  }, [bookableServices, audience])
 
   const addItem = () => {
     const svc = serviceById(pickService)
@@ -378,7 +449,9 @@ export default function NewAppointment() {
     setStart(null)
     Promise.all(itemStylistIds.map(id =>
       client.get(`/availability/?stylist_id=${id}&date=${date}`, { signal: controller.signal })
-        .then(r => [id, r.data.busy || []])
+        // Defensive: an off stylist reports busy=[] — treat it as a full-day
+        // block so the transient before the prune effect never shows free slots.
+        .then(r => [id, r.data.stylist_off ? [{ start: '10:00', end: '21:00' }] : (r.data.busy || [])])
         .catch(() => [id, []])
     )).then(pairs => {
       if (!controller.signal.aborted) setAvail(Object.fromEntries(pairs))
@@ -711,8 +784,17 @@ export default function NewAppointment() {
               value={date}
               min={istToday()}
               onChange={e => setDate(e.target.value)}
-              className="luxury-input mb-5 max-w-xs"
+              className="luxury-input mb-4 max-w-xs"
             />
+
+            {availableForDate === date && offStylists.length > 0 && (
+              <div className="rounded-xl border border-amber-800/50 bg-amber-900/20 px-4 py-2.5 mb-5 flex items-start gap-2">
+                <CalendarOff className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-amber-400 text-xs">
+                  {offStylists.map(s => s.name).join(' & ')} {offStylists.length > 1 ? 'are' : 'is'} off on {date} — their services are hidden and they can't be booked.
+                </p>
+              </div>
+            )}
 
             <label className="block text-xs text-emerald-300 mb-2" htmlFor="wa-start">Start time</label>
             {items.length === 0 ? (

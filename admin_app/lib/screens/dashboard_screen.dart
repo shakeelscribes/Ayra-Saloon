@@ -25,6 +25,7 @@ class DashboardScreenState extends State<DashboardScreen> {
   String? _error;
   String? _selectedDate; // null = all dates
   String? _actingId; // booking currently being mutated (spinner on its buttons)
+  m.StylistsAvailable? _roster; // off-day roster for the banner date
 
   @override
   void initState() {
@@ -32,20 +33,42 @@ class DashboardScreenState extends State<DashboardScreen> {
     refresh();
   }
 
+  /// Stylists act only on their own chair — a booking is theirs when one of
+  /// its slot rows (or the legacy single-stylist field) names them. The
+  /// backend already scopes adminBookings; this is a defensive client filter.
+  bool _ownChair(m.BookingModel b) {
+    final me = Api.instance.user;
+    if (me == null || !me.isStylist || me.stylistId == null) return true;
+    final sid = me.stylistId!;
+    final ids = b.slots
+        .map((sl) => sl.stylist?.id ?? '')
+        .where((s) => s.isNotEmpty)
+        .toSet();
+    if (ids.isNotEmpty) return ids.contains(sid);
+    return b.stylist?.id == sid;
+  }
+
   Future<void> refresh() async {
     setState(() {
       _loading = _bookings.isEmpty;
       _error = null;
     });
+    _loadRoster();
     try {
       final results = await Future.wait([
         Api.instance.adminBookings(date: _selectedDate),
         Api.instance.adminBookings(),
       ]);
-      final all = results[1].map((e) => m.BookingModel.fromJson(e)).toList();
+      final all = results[1]
+          .map((e) => m.BookingModel.fromJson(e))
+          .where(_ownChair)
+          .toList();
       if (!mounted) return;
       setState(() {
-        _bookings = results[0].map((e) => m.BookingModel.fromJson(e)).toList();
+        _bookings = results[0]
+            .map((e) => m.BookingModel.fromJson(e))
+            .where(_ownChair)
+            .toList();
         _pending = all.where((b) => b.status == 'pending').toList();
         _awaiting = all
             .where((b) => b.status == 'awaiting_reschedule')
@@ -59,6 +82,21 @@ class DashboardScreenState extends State<DashboardScreen> {
         _error = e.message;
         _loading = false;
       });
+    }
+  }
+
+  /// Off-day banner data — /stylists/available for the visible day (the
+  /// selected filter date, else IST today). Fail-open: on error the banner
+  /// just hides; the dashboard must not depend on it.
+  Future<void> _loadRoster() async {
+    try {
+      final roster =
+          await Api.instance.stylistsAvailable(_selectedDate ?? istToday());
+      if (!mounted) return;
+      setState(() => _roster = roster);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _roster = null);
     }
   }
 
@@ -142,13 +180,15 @@ class DashboardScreenState extends State<DashboardScreen> {
           Reveal(
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Eyebrow('Admin Panel'),
-                      SizedBox(height: 6),
-                      Text(
+                      Eyebrow(Api.instance.user?.isStylist == true
+                          ? 'Staff Panel'
+                          : 'Admin Panel'),
+                      const SizedBox(height: 6),
+                      const Text(
                         'Daily Dashboard',
                         style: TextStyle(
                           fontSize: 28,
@@ -156,7 +196,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                           color: cream,
                         ),
                       ),
-                      GoldRule(),
+                      const GoldRule(),
                     ],
                   ),
                 ),
@@ -173,6 +213,34 @@ class DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 20),
+
+          // ── Off-day banner (who is marked off for the visible day) ─────────
+          if (_roster != null && _roster!.off.isNotEmpty) ...[
+            Reveal(
+              delay: const Duration(milliseconds: 20),
+              child: GlassCard(
+                border: amber400.withValues(alpha: 0.45),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.event_busy,
+                        size: 18, color: amber400),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Off ${_roster!.date}: '
+                        '${_roster!.off.map((s) => s.stylist.name).join(', ')}'
+                        ' — their exclusive services are hidden from online booking.',
+                        style: const TextStyle(
+                            color: amber400, fontSize: 12.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // ── Stats ───────────────────────────────────────────────────────────
           Reveal(
@@ -445,8 +513,9 @@ class DashboardScreenState extends State<DashboardScreen> {
                 : <m.SlotModel>[]);
       for (final sl in rows) {
         final name = sl.stylist?.name;
-        if (name != null && name.isNotEmpty)
+        if (name != null && name.isNotEmpty) {
           acc[name] = (acc[name] ?? 0) + sl.durationMins;
+        }
       }
     }
     return acc;
@@ -905,7 +974,7 @@ class _LoadBar extends StatelessWidget {
                 tween: Tween(begin: 0, end: pct),
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.easeOutCubic,
-                builder: (_, v, __) => LinearProgressIndicator(
+                builder: (_, v, _) => LinearProgressIndicator(
                   value: v,
                   minHeight: 6,
                   backgroundColor: emerald900,
@@ -934,7 +1003,7 @@ class _RescheduleSheet extends StatefulWidget {
 class _RescheduleSheetState extends State<_RescheduleSheet> {
   late DateTime _date;
   String? _start;
-  Map<String, List<m.BusyInterval>> _avail = {};
+  Map<String, m.AvailabilityResult> _avail = {};
   bool _loading = true;
   bool _loadFailed = false;
   final _reason = TextEditingController();
@@ -1034,14 +1103,39 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // A stylist marked off on this date blocks their whole day — same
+    // full-day block the backend's availability math implies.
+    List<m.BusyInterval> busyFor(String id) {
+      final r = _avail[id];
+      if (r == null) return const [];
+      if (r.stylistOff) {
+        return [m.BusyInterval(start: '10:00', end: '21:00')];
+      }
+      return r.busy;
+    }
+
     final viable = _loading || _loadFailed || _rows.isEmpty
         ? <String>{}
-        : viableStartsFor((id) => _avail[id] ?? [], _rows);
+        : viableStartsFor(busyFor, _rows);
     final availLoaded =
         !_loading &&
         !_loadFailed &&
         _stylistIds.isNotEmpty &&
         _stylistIds.every((id) => _avail.containsKey(id));
+    // Names of involved stylists who are off — shown instead of the generic
+    // "no slots" message so the reason is obvious.
+    final offNames = !availLoaded
+        ? <String>[]
+        : () {
+            final idName = {
+              for (final r in _rows)
+                if (r.stylist != null) r.stylist!.id: r.stylist!.name,
+            };
+            return [
+              for (final id in _stylistIds)
+                if (_avail[id]?.stylistOff ?? false) idName[id] ?? id,
+            ];
+          }();
     final block = slotsNeededFor(_rows.map((r) => r.durationMins).toList());
 
     // 10-min booking cutoff for today — mirrors the backend reschedule guard
@@ -1152,6 +1246,12 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
                 const Text(
                   'Could not load availability for this date.',
                   style: TextStyle(color: amber400, fontSize: 11.5),
+                )
+              else if (offNames.isNotEmpty)
+                Text(
+                  '${offNames.join(', ')} '
+                  '${offNames.length == 1 ? 'is' : 'are'} marked off on $_dateStr — no availability that day.',
+                  style: const TextStyle(color: amber400, fontSize: 11.5),
                 )
               else if (viable.isEmpty)
                 const Text(

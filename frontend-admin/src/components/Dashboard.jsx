@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, Phone, X, Plus, LogOut } from 'lucide-react'
+import { Calendar, CalendarClock, Clock, User, Scissors, TrendingUp, Users, CheckCircle2, XCircle, AlertCircle, MessageCircle, CheckCheck, Phone, X, Plus, LogOut, CalendarOff, IndianRupee } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
@@ -54,12 +54,15 @@ const telHref = (phone) => {
 }
 
 export default function Dashboard() {
-  const { logout } = useAuth()
+  const { logout, role } = useAuth()
   const navigate = useNavigate()
   const [bookings, setBookings] = useState([])
   const [pending, setPending] = useState([])
   const [awaiting, setAwaiting] = useState([])
   const [notifications, setNotifications] = useState([])
+  // Off-day banner — shared ranges + roster names for the banner labels
+  const [timeOff, setTimeOff] = useState([])
+  const [stylistNames, setStylistNames] = useState({})
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(istToday())
 
@@ -69,6 +72,7 @@ export default function Dashboard() {
   const [propStart, setPropStart] = useState(null)
   const [propReason, setPropReason] = useState('')
   const [avail, setAvail] = useState({})
+  const [availOff, setAvailOff] = useState([])
   const [availLoading, setAvailLoading] = useState(false)
 
   const fetchBookings = async (date) => {
@@ -103,8 +107,21 @@ export default function Dashboard() {
     }
   }
 
+  const fetchTimeOff = async () => {
+    try {
+      const [to, st] = await Promise.all([
+        client.get('/stylists/time-off/upcoming'),
+        client.get('/stylists/'),
+      ])
+      setTimeOff(to.data)
+      setStylistNames(Object.fromEntries(st.data.map(s => [String(s.id), s.name])))
+    } catch {
+      /* silent — banner is secondary */
+    }
+  }
+
   useEffect(() => { fetchBookings(selectedDate) }, [selectedDate])
-  useEffect(() => { fetchQueues(); fetchNotifications() }, [])
+  useEffect(() => { fetchQueues(); fetchNotifications(); fetchTimeOff() }, [])
 
   const refreshAll = () => { fetchBookings(selectedDate); fetchQueues(); fetchNotifications() }
 
@@ -165,6 +182,16 @@ export default function Dashboard() {
   const confirmed = bookings.filter(b => b.status === 'confirmed')
   const cancelled = bookings.filter(b => b.status === 'cancelled')
 
+  // Off-day banner data — today's offs + upcoming ranges (in-app notify).
+  const today = istToday()
+  const offToday = timeOff.filter(r => r.start <= today && today <= r.end)
+  const upcomingOff = timeOff.filter(r => r.start > today)
+  const offOnSelected = selectedDate
+    ? timeOff.filter(r => r.start <= selectedDate && selectedDate <= r.end)
+    : []
+  const offName = (r) => stylistNames[String(r.stylist_id)] || 'A stylist'
+  const fmtDay = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+
   const fmtTime = (t) => {
     if (!t) return '—'
     const [h, m] = t.split(':').map(Number)
@@ -214,16 +241,19 @@ export default function Dashboard() {
     const controller = new AbortController()
     setAvailLoading(true)
     setAvail({})
+    setAvailOff([])
     setPropStart(null)
     Promise.all(propStylistIds.map(id =>
       client.get(
         `/availability/?stylist_id=${id}&date=${propDate}&exclude_booking_id=${rescheduleTarget.id}`,
         { signal: controller.signal }
       )
-        .then(r => [id, r.data.busy || []])
-        .catch(() => [id, []])
+        .then(r => [id, r.data.busy || [], !!r.data.stylist_off])
+        .catch(() => [id, [], false])
     )).then(pairs => {
-      if (!controller.signal.aborted) setAvail(Object.fromEntries(pairs))
+      if (controller.signal.aborted) return
+      setAvail(Object.fromEntries(pairs.map(([id, busy]) => [id, busy])))
+      setAvailOff(pairs.filter(([, , off]) => off).map(([id]) => id))
     }).finally(() => {
       if (!controller.signal.aborted) setAvailLoading(false)
     })
@@ -281,13 +311,21 @@ export default function Dashboard() {
         {/* Header */}
         <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-2">Admin Panel</p>
+            <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-2">
+              {role === 'stylist' ? 'Staff Panel' : 'Admin Panel'}
+            </p>
             <h1 className="font-display text-4xl text-cream">Daily Dashboard</h1>
             <div className="w-20 h-0.5 mt-4" style={{ background: 'linear-gradient(90deg, #c9a84c, transparent)' }} />
           </div>
           <div className="flex items-center gap-3">
             <Link to="/new-appointment" className="btn-gold !px-5 !py-2.5 text-sm inline-flex items-center gap-2">
               <Plus className="w-4 h-4" /> New Appointment
+            </Link>
+            <Link to="/time-off" className="btn-outline !px-5 !py-2.5 text-sm inline-flex items-center gap-2">
+              <CalendarOff className="w-4 h-4" /> Time Off
+            </Link>
+            <Link to="/economy" className="btn-outline !px-5 !py-2.5 text-sm inline-flex items-center gap-2">
+              <IndianRupee className="w-4 h-4" /> Economy
             </Link>
             <button
               onClick={handleLogout}
@@ -298,6 +336,32 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+
+        {/* Off-day banner — in-app notify, shared by all staff */}
+        {(offToday.length > 0 || upcomingOff.length > 0) && (
+          <div className="glass-card p-4 mb-8 border border-amber-800/50 flex items-start gap-3">
+            <CalendarOff className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              {offToday.length > 0 && (
+                <p className="text-amber-400 text-sm">
+                  <span className="font-semibold">{offToday.map(offName).join(' & ')}</span>{' '}
+                  {offToday.length > 1 ? 'are' : 'is'} off today
+                  {offToday.some(r => r.end > today) && (
+                    <span className="text-amber-400/70"> (until {fmtDay(offToday.find(r => r.end > today).end)})</span>
+                  )}
+                  {' '}— their chair is closed for booking.
+                </p>
+              )}
+              {upcomingOff.length > 0 && (
+                <p className={`text-emerald-300 text-xs ${offToday.length > 0 ? 'mt-1' : ''}`}>
+                  Upcoming: {upcomingOff.slice(0, 4).map(r =>
+                    `${offName(r)} ${r.start === r.end ? fmtDay(r.start) : `${fmtDay(r.start)} – ${fmtDay(r.end)}`}`
+                  ).join(' · ')}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-10">
@@ -328,6 +392,12 @@ export default function Dashboard() {
           >
             View All
           </button>
+          {offOnSelected.length > 0 && (
+            <span className="text-amber-400 text-xs inline-flex items-center gap-1.5 sm:ml-auto">
+              <CalendarOff className="w-3.5 h-3.5" />
+              {offOnSelected.map(offName).join(' & ')} {offOnSelected.length > 1 ? 'are' : 'is'} off on {selectedDate}
+            </span>
+          )}
         </div>
 
         {/* Pending approval queue — always visible, all dates */}
@@ -644,6 +714,11 @@ export default function Dashboard() {
               </div>
             ) : !availLoaded ? (
               <p className="text-amber-400 text-xs mb-4">Could not load availability for this date.</p>
+            ) : availOff.length > 0 ? (
+              <p className="text-amber-400 text-xs mb-4">
+                {[...new Set(propRows.filter(sl => availOff.includes(String(sl.stylist_id))).map(sl => sl.stylist?.name).filter(Boolean))].join(' & ') || 'A stylist'}{' '}
+                {availOff.length > 1 ? 'are' : 'is'} off on {propDate} — pick another day.
+              </p>
             ) : viableStarts.size === 0 ? (
               <p className="text-amber-400 text-xs mb-4">No start times available for this date — try another day.</p>
             ) : (

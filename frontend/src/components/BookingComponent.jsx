@@ -35,7 +35,7 @@ function StepIndicator({ labels, current }) {
             </span>
           </div>
           {i < labels.length - 1 && (
-            <div className={`w-12 sm:w-16 h-px mx-2 mb-4 transition-colors duration-300 ${i < current ? 'bg-gold-500' : 'bg-emerald-800'}`} />
+            <div className={`w-5 sm:w-16 h-px mx-1.5 sm:mx-2 mb-4 transition-colors duration-300 ${i < current ? 'bg-gold-500' : 'bg-emerald-800'}`} />
           )}
         </div>
       ))}
@@ -191,6 +191,10 @@ const istNowMins = () => {
   const now = new Date()
   return (now.getUTCHours() * 60 + now.getUTCMinutes() + 330) % 1440
 }
+
+/* Human date labels for the date-first flow (off-day notices, time step). */
+const fmtDayMonth = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+const fmtDayLong = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })
 
 const CATEGORY_TABS = [
   { id: 'all',     label: 'All'      },
@@ -490,36 +494,28 @@ export default function BookingComponent() {
       .finally(() => setLoadingCatalog(false))
   }, [])
 
-  /* ── Flow state ── */
+  /* ── Flow state ──
+     Declared before the effects below — the "who's working" fetch reads
+     `date` in its dependency array, which is evaluated during render, so
+     `date` must already exist here (a declaration further down would be a
+     temporal-dead-zone crash: "Cannot access 'date' before initialization"). */
   // Apple-style: the first step is a hero question — "Myself or someone else?"
   // If the user picks "Myself" and we already have their gender on file, the
-  // Gender step is skipped and we land directly on Services.
+  // Gender step is skipped and we land directly on the Date step.
   //
   // The saved draft is read synchronously here so the first render is already
   // at the restored step — otherwise the "For me / For someone else" hero
   // cards flash for a frame before the wizard jumps to where the user left
   // off (the flicker seen when re-opening Book Now).
-  const DRAFT_KEY = 'booking_draft'
+  // v2: the flow went date-first — old drafts used the previous step
+  // indexing, so they are ignored rather than mis-restored.
+  const DRAFT_KEY = 'booking_draft_v2'
   const draft = useMemo(() => {
     try {
       const raw = sessionStorage.getItem(DRAFT_KEY)
       return raw ? JSON.parse(raw) : null
     } catch { /* corrupt or blocked storage */ return null }
   }, [])
-
-  const [forWhom, setForWhom] = useState(() => draft?.forWhom ?? null) // 'myself' | 'someone_else' | null
-  const [step, setStep] = useState(() => {
-    const s = draft?.step
-    return typeof s === 'number' && s >= 0 ? s : 0
-  })
-  const [audience, setAudience] = useState(() => draft?.audience ?? null) // men | women | null — no default
-  const [forKids, setForKids] = useState(() => Boolean(draft?.forKids))
-
-  const [picked, setPicked] = useState([])        // ordered service objects (restored once catalog loads)
-  const [picks, setPicks] = useState(() => {
-    const p = draft?.picks
-    return p && typeof p === 'object' ? { ...p } : {}
-  })                                            // serviceId -> stylistId | 'any'
 
   // Clamp stale drafts: a date/startTime restored from a previous session can
   // be in the past (or predate a catalog change). Past dates are unbookable.
@@ -536,6 +532,50 @@ export default function BookingComponent() {
   })
   const [availMap, setAvailMap] = useState({})    // stylistId -> busy intervals [{start, end}]
   const [loadingSlots, setLoadingSlots] = useState(false)
+
+  const [forWhom, setForWhom] = useState(() => draft?.forWhom ?? null) // 'myself' | 'someone_else' | null
+  const [step, setStep] = useState(() => {
+    const s = draft?.step
+    return typeof s === 'number' && s >= 0 ? s : 0
+  })
+  const [audience, setAudience] = useState(() => draft?.audience ?? null) // men | women | null — no default
+  const [forKids, setForKids] = useState(() => Boolean(draft?.forKids))
+
+  /* ── Who's working on the chosen date (date-first flow) ──
+     Fetched as soon as a date exists. Services whose only specialists are
+     off that day get hidden, the Stylists step offers only the working team,
+     and the Date step names who is off. On fetch failure we fail OPEN
+     (everyone counts as working) so a network blip never empties the menu. */
+  const [availableForDate, setAvailableForDate] = useState(null) // date string the data belongs to
+  const [workingStylists, setWorkingStylists] = useState([])
+  const [offStylists, setOffStylists] = useState([])
+
+  useEffect(() => {
+    if (!date) return
+    const controller = new AbortController()
+    client.get(`/stylists/available?date=${date}`, { signal: controller.signal })
+      .then((r) => {
+        if (controller.signal.aborted) return
+        setWorkingStylists((r.data.working || []).map((e) => e.stylist))
+        setOffStylists((r.data.off || []).map((e) => e.stylist))
+        setAvailableForDate(date)
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setWorkingStylists(stylists) // fail open — treat the whole team as in
+        setOffStylists([])
+        setAvailableForDate(date)
+      })
+    return () => controller.abort()
+  }, [date, stylists])
+
+  const offIds = useMemo(() => new Set(offStylists.map((s) => String(s.id))), [offStylists])
+
+  const [picked, setPicked] = useState([])        // ordered service objects (restored once catalog loads)
+  const [picks, setPicks] = useState(() => {
+    const p = draft?.picks
+    return p && typeof p === 'object' ? { ...p } : {}
+  })                                            // serviceId -> stylistId | 'any'
 
   const [notes, setNotes] = useState(() => draft?.notes || '')
   const [submitting, setSubmitting] = useState(false)
@@ -611,6 +651,48 @@ export default function BookingComponent() {
     setPicks((pk) => Object.fromEntries(Object.entries(pk).filter(([sid]) => !removed.has(sid))))
   }, [audience, forKids, picked])
 
+  /* ── Date changes re-validate earlier picks ──
+     A restored draft or a date change can leave the cart holding services
+     whose only specialists are off that day, or stylist picks pointing at
+     someone who isn't working. Drop the unbookable services and reset those
+     stylist picks to "No preference" — same contract as the audience prune
+     above, with the same keep-predicate as bookableServices below. */
+  useEffect(() => {
+    if (!date || availableForDate !== date) return
+    const workingCats = new Set(workingStylists.flatMap((s) => s.categories || []))
+    const workingIds = new Set(workingStylists.map((s) => String(s.id)))
+    const allCats = new Set(stylists.flatMap((s) => s.categories || []))
+    const keep = picked.filter((svc) => !allCats.has(svc.category) || workingCats.has(svc.category))
+    const removed = new Set(
+      picked.filter((s) => !keep.some((k) => k.id === s.id)).map((s) => String(s.id))
+    )
+    let picksDirty = false
+    const nextPicks = {}
+    for (const [sid, target] of Object.entries(picks)) {
+      if (removed.has(sid)) { picksDirty = true; continue }
+      if (target !== 'any' && !workingIds.has(String(target))) {
+        nextPicks[sid] = 'any'
+        picksDirty = true
+      } else {
+        nextPicks[sid] = target
+      }
+    }
+    if (removed.size === 0 && !picksDirty) return
+    if (removed.size > 0) setPicked(keep)
+    setPicks(nextPicks)
+  }, [date, availableForDate, workingStylists, stylists, picked, picks])
+
+  /* Services actually offerable on the chosen date: hide a service when at
+     least one stylist specialises in its category but none of them is
+     working that day. Categories nobody specialises in stay (the "any
+     stylist" escape hatch still applies). */
+  const bookableServices = useMemo(() => {
+    if (availableForDate !== date) return services
+    const workingCats = new Set(workingStylists.flatMap((s) => s.categories || []))
+    const allCats = new Set(stylists.flatMap((s) => s.categories || []))
+    return services.filter((svc) => !allCats.has(svc.category) || workingCats.has(svc.category))
+  }, [services, date, availableForDate, workingStylists, stylists])
+
   /* ── Availability for every involved stylist ── */
   const involvedStylistIds = useMemo(() => {
     const ids = new Set()
@@ -618,11 +700,13 @@ export default function BookingComponent() {
       const pick = picks[p.id]
       if (pick && pick !== 'any') { ids.add(pick); continue }
       for (const s of stylists) {
-        if ((s.categories || []).includes(p.category)) ids.add(s.id)
+        // Off stylists are excluded — their availability endpoint reports no
+        // busy intervals, which would otherwise read as "free all day".
+        if ((s.categories || []).includes(p.category) && !offIds.has(String(s.id))) ids.add(s.id)
       }
     }
     return [...ids]
-  }, [picked, picks, stylists])
+  }, [picked, picks, stylists, offIds])
 
   useEffect(() => {
     if (!date || involvedStylistIds.length === 0) { setAvailMap({}); return }
@@ -656,15 +740,19 @@ export default function BookingComponent() {
       const sMin = cursor
       const eMin = cursor + dur
       const pick = picks[svc.id]
-      // When no stylist specialises in this category, ANY stylist is
-      // acceptable — mirrors the Stylists step's show-all fallback and the
-      // backend's specialist-count escape hatch.
-      const hasSpecialist = stylists.some((s) => (s.categories || []).includes(svc.category))
+      // When no WORKING stylist specialises in this category, any working
+      // stylist is acceptable — mirrors the Stylists step's show-all fallback
+      // and the backend's specialist-count escape hatch. Off stylists never
+      // enter a plan.
+      const hasSpecialist = stylists.some(
+        (s) => !offIds.has(String(s.id)) && (s.categories || []).includes(svc.category)
+      )
       let stylist = null
       if (pick && pick !== 'any') {
         const st = stylists.find((x) => String(x.id) === String(pick))
         stylist =
           st &&
+          !offIds.has(String(st.id)) &&
           ((st.categories || []).includes(svc.category) || !hasSpecialist) &&
           isFree(availMap[st.id], sMin, eMin)
             ? st
@@ -675,13 +763,14 @@ export default function BookingComponent() {
         // specialist is busy the pool is empty and the start is blocked.
         const freeSpecialists = stylists.filter(
           (s) =>
+            !offIds.has(String(s.id)) &&
             (s.categories || []).includes(svc.category) &&
             isFree(availMap[s.id], sMin, eMin)
         )
         const pool = freeSpecialists.length > 0
           ? freeSpecialists
           : (!hasSpecialist
-            ? stylists.filter((s) => isFree(availMap[s.id], sMin, eMin))
+            ? stylists.filter((s) => !offIds.has(String(s.id)) && isFree(availMap[s.id], sMin, eMin))
             : [])
         stylist = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null
       }
@@ -702,7 +791,7 @@ export default function BookingComponent() {
     const startIdx = ALL_SLOTS.indexOf(startTime)
     if (startIdx < 0 || startIdx + blockSlots > ALL_SLOTS.length) return null
     return resolveCascade(startIdx)
-  }, [startTime, picked, picks, stylists, availMap, blockSlots])
+  }, [startTime, picked, picks, stylists, availMap, blockSlots, offIds])
 
   /* Start times where the whole cascade resolves against live availability —
      lets the Schedule grid mark taken hours before the user taps them. */
@@ -713,7 +802,7 @@ export default function BookingComponent() {
       if (resolveCascade(s).blockedAt === null) viable.add(ALL_SLOTS[s])
     }
     return viable
-  }, [picked, picks, stylists, availMap, blockSlots])
+  }, [picked, picks, stylists, availMap, blockSlots, offIds])
 
   /* Availability counts as loaded once every involved stylist has a fetched
      busy map — until then the grid stays neutral instead of flashing
@@ -755,7 +844,7 @@ export default function BookingComponent() {
         notes,
       })
       setSuccess(true)
-      sessionStorage.removeItem('booking_draft')
+      sessionStorage.removeItem(DRAFT_KEY)
       if ('vibrate' in navigator) navigator.vibrate(20)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Booking failed. Please try again.')
@@ -798,35 +887,30 @@ export default function BookingComponent() {
   }
 
   /* ── Step definitions ──
-   * Logical steps are FIXED 0..5: whom, gender, services, stylists, schedule, confirm.
-   * When For me is picked AND the profile already has a stored gender, the
-   * Gender step is auto-skipped: the user's pre-known gender is applied, the
-   * indicator shows 5 dots, and we land directly on Services. For someone
+   * Logical steps are FIXED 0..6, date-first: whom, gender, date, services,
+   * stylists, schedule (time), confirm. When For me is picked AND the profile
+   * already has a stored gender, the Gender step is auto-skipped: the user's
+   * pre-known gender is applied and we land directly on Date. For someone
    * else ALWAYS shows the Gender step (the user is booking for another person
    * whose gender we can't assume). */
-  const STEPS = ['whom', 'gender', 'services', 'stylists', 'schedule', 'confirm']
+  const STEPS = ['whom', 'gender', 'date', 'services', 'stylists', 'schedule', 'confirm']
   const hasStoredGender = Boolean(user?.gender === 'men' || user?.gender === 'women')
   const skipGender = forWhom === 'myself' && hasStoredGender
   // effectiveStep is what we actually RENDER. When skipGender is true and the
-  // user is on logical step 1 (gender), render step 2 (services) instead.
+  // user is on logical step 1 (gender), render step 2 (date) instead.
   const effectiveStep = (skipGender && step === 1) ? 2 : step
-  const displayStep = Math.max(0, effectiveStep - (skipGender && step > 0 ? 1 : 0))
-  // The step indicator shows ONLY the 4 "process" steps: Services, Stylists,
-  // Schedule, Confirm. The Whom and Gender hero screens are pre-funnel
-  // decisions and are intentionally excluded from the indicator so the
-  // 4 dots fit comfortably on mobile without wrapping.
-  const stepLabels = ['Services', 'Stylists', 'Schedule', 'Confirm']
+  // The step indicator shows the 5 "process" steps: Date, Services, Stylists,
+  // Time, Confirm. The Whom and Gender hero screens are pre-funnel decisions
+  // and are intentionally excluded from the indicator.
+  const stepLabels = ['Date', 'Services', 'Stylists', 'Time', 'Confirm']
   const logicalStepName = STEPS[effectiveStep]
 
-  // displayStep indexes into the 4-step indicator: services=0, stylists=1,
-  // schedule=2, confirm=3. Whom (effectiveStep=0) and gender (effectiveStep=1)
-  // both map to "no indicator active" until services is reached.
+  // indicatorStep indexes the 5-dot indicator: date=0, services=1,
+  // stylists=2, schedule=3, confirm=4. Whom (effectiveStep=0) and gender
+  // (effectiveStep=1) map to "no indicator active" until date is reached.
   const indicatorStep =
     effectiveStep <= 1 ? -1 :
-    effectiveStep === 2 ? 0 :
-    effectiveStep === 3 ? 1 :
-    effectiveStep === 4 ? 2 :
-    3
+    effectiveStep - 2
 
   const goNext = () => {
     if (!canNext()) { tap(5); return }
@@ -839,6 +923,7 @@ export default function BookingComponent() {
     const label = STEPS[step]
     if (label === 'whom') return Boolean(forWhom)
     if (label === 'gender') return Boolean(audience || forKids)
+    if (label === 'date') return Boolean(date)
     if (label === 'services') return picked.length > 0
     if (label === 'stylists') return picked.every((p) => picks[p.id])
     if (label === 'schedule') return Boolean(date && startTime && resolution && !resolution.blockedAt)
@@ -904,12 +989,11 @@ export default function BookingComponent() {
                         tap(10)
                         setForWhom('myself')
                         // If the profile already has a gender on file, apply it
-                        // and SKIP the Gender step — go straight to Services.
-                        // The displayStep mapping collapses 6 dots into 5.
+                        // and SKIP the Gender step — go straight to Date.
                         if (hasStoredGender) {
                           setAudience(user.gender)
                           setForKids(false)
-                          setStep(2)  // logical step 2 = services
+                          setStep(2)  // logical step 2 = date (gender skipped)
                         } else {
                           setAudience(null)
                           setForKids(false)
@@ -963,7 +1047,7 @@ export default function BookingComponent() {
                         tap(8)
                         setAudience('men')
                         setForKids(false)
-                        setStep(2)  // logical step 2 = services
+                        setStep(2)  // logical step 2 = date
                       }}
                       delay={0.06}
                     />
@@ -975,7 +1059,7 @@ export default function BookingComponent() {
                         tap(8)
                         setAudience('women')
                         setForKids(false)
-                        setStep(2)  // logical step 2 = services
+                        setStep(2)  // logical step 2 = date
                       }}
                       delay={0.12}
                     />
@@ -987,7 +1071,7 @@ export default function BookingComponent() {
                         tap(8)
                         setForKids(true)
                         setAudience(null)
-                        setStep(2)  // logical step 2 = services
+                        setStep(2)  // logical step 2 = date
                       }}
                       delay={0.18}
                     />
@@ -995,12 +1079,94 @@ export default function BookingComponent() {
                 </div>
               )}
 
+              {/* ── DATE (date-first) ── */}
+              {logicalStepName === 'date' && (
+                <div>
+                  <motion.h2
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: EASE_OUT }}
+                    className="font-display text-3xl sm:text-4xl text-cream text-center mb-2 tracking-tight"
+                  >
+                    When would you like to visit?
+                  </motion.h2>
+                  <motion.p
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.05, ease: EASE_OUT }}
+                    className="text-emerald-300 text-center mb-8 text-sm"
+                  >
+                    We'll show who's working and what's bookable that day
+                  </motion.p>
+                  <div className="max-w-lg mx-auto space-y-4">
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {[
+                        { label: 'Today', value: istDate(0) },
+                        { label: 'Tomorrow', value: istDate(1) },
+                      ].map(({ label, value }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onPointerDown={() => tap(4)}
+                          onClick={() => { tap(6); setDate(value); setStartTime(null) }}
+                          className={`tap-target px-4 py-2 rounded-full text-xs font-medium border ${
+                            date === value
+                              ? 'bg-gold-gradient text-emerald-950 border-gold-400'
+                              : 'border-emerald-700 text-cream/80 hover:border-gold-500/50'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div>
+                      <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-3 text-center">Select Date</p>
+                      <div className="flex justify-center">
+                        <input
+                          type="date"
+                          min={istDate(0)}
+                          value={date}
+                          onChange={(e) => { if (e.target.value) { setDate(e.target.value); setStartTime(null) } }}
+                          className="luxury-input max-w-xs"
+                        />
+                      </div>
+                    </div>
+                    {availableForDate === date && offStylists.length > 0 && (
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-center">
+                        <p className="text-amber-300 text-sm flex items-center justify-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>
+                            {offStylists.length === 1
+                              ? `${offStylists[0].name} is off on ${fmtDayMonth(date)}`
+                              : `${offStylists.map((s) => s.name).join(' and ')} are off on ${fmtDayMonth(date)}`}
+                          </span>
+                        </p>
+                        <p className="text-amber-300/70 text-xs mt-1">
+                          Their exclusive services are hidden for this date.
+                        </p>
+                      </div>
+                    )}
+                    {availableForDate === date && workingStylists.length === 0 && (
+                      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-center">
+                        <p className="text-red-300 text-sm flex items-center justify-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          Every stylist is off on {fmtDayLong(date)} — the salon is closed.
+                        </p>
+                        <p className="text-red-300/70 text-xs mt-1">Please pick another day.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* ── SERVICES ── */}
               {logicalStepName === 'services' && (
-                loadingCatalog ? (
+                (loadingCatalog || availableForDate !== date) ? (
                   <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 glass-card animate-pulse rounded-2xl" />)}</div>
-                ) : services.length === 0 ? (
-                  <p className="text-emerald-300 text-center py-8">Menu unavailable right now.</p>
+                ) : bookableServices.length === 0 ? (
+                  <p className="text-emerald-300 text-center py-8">
+                    {availableForDate === date && offStylists.length > 0
+                      ? `Every service needs a stylist who is off on ${fmtDayMonth(date)}. Please pick another day.`
+                      : 'Menu unavailable right now.'}
+                  </p>
                 ) : (
                   <>
                     <h2 className="font-display text-2xl sm:text-3xl text-cream text-center mb-1.5">
@@ -1010,7 +1176,7 @@ export default function BookingComponent() {
                       {forKids ? 'Gentle, quick, and fun' : 'Mix and match — book them all in one visit'}
                     </p>
                     <ServiceList
-                      services={services}
+                      services={bookableServices}
                       picked={picked}
                       picks={picks}
                       audience={audience}
@@ -1029,10 +1195,11 @@ export default function BookingComponent() {
                   <p className="text-emerald-300 text-center mb-8 text-sm">One choice per service — or leave it to us</p>
                   <div className="space-y-6">
                     {picked.map((svc) => {
-                      const compatible = stylists.filter((s) => (s.categories || []).includes(svc.category))
-                      // Fallback: when NO stylist specialises in this category,
-                      // show the whole team instead of a lone "No preference".
-                      const choices = compatible.length > 0 ? compatible : stylists
+                      const compatible = workingStylists.filter((s) => (s.categories || []).includes(svc.category))
+                      // Fallback: when no WORKING stylist specialises in this
+                      // category, offer the working team instead of a lone
+                      // "No preference". Off stylists are never offered.
+                      const choices = compatible.length > 0 ? compatible : workingStylists
                       const forced = compatible.length === 1
                       return (
                         <div key={svc.id} className="rounded-2xl border border-emerald-700/60 bg-emerald-900/30 p-4">
@@ -1091,24 +1258,13 @@ export default function BookingComponent() {
                 </div>
               )}
 
-              {/* ── SCHEDULE (date + cascade start) ── */}
+              {/* ── SCHEDULE (cascade start — date was chosen earlier) ── */}
               {logicalStepName === 'schedule' && (
                 <div className="space-y-7">
-                  <h2 className="font-display text-3xl text-cream text-center mb-2">Pick Date & Start Time</h2>
+                  <h2 className="font-display text-3xl text-cream text-center mb-2">Pick a Start Time</h2>
                   <p className="text-emerald-300 text-center text-sm -mt-4">
-                    {picked.length} service{picked.length > 1 ? 's' : ''} back-to-back — about {fmtDur(visitMins)} total, reserves {blockSlots} hour{blockSlots !== 1 ? 's' : ''}
+                    {fmtDayLong(date)} — {picked.length} service{picked.length > 1 ? 's' : ''} back-to-back, about {fmtDur(visitMins)} total, reserves {blockSlots} hour{blockSlots !== 1 ? 's' : ''}
                   </p>
-
-                  <div>
-                    <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-3">Select Date</p>
-                    <input
-                      type="date"
-                      min={istDate(0)}
-                      value={date}
-                      onChange={(e) => { setDate(e.target.value); setStartTime(null) }}
-                      className="luxury-input max-w-xs"
-                    />
-                  </div>
 
                   <div>
                     <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-3">
@@ -1211,7 +1367,7 @@ export default function BookingComponent() {
                     ))}
                     <div className="flex justify-between items-center border-b border-emerald-800 pb-3">
                       <span className="text-emerald-300 text-sm">Date</span>
-                      <span className="text-cream font-medium text-sm">{new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+                      <span className="text-cream font-medium text-sm">{fmtDayLong(date)}</span>
                     </div>
                     <div className="flex justify-between items-center border-b border-emerald-800 pb-3 last:border-0">
                       <span className="text-emerald-300 text-sm">Start & Duration</span>

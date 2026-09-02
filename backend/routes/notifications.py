@@ -17,9 +17,24 @@ async def my_notifications(current_user: models.User = Depends(get_current_user)
 @router.get("/all", response_model=List[schemas.NotificationOut])
 async def all_notifications(
     limit: int = 50,
-    _admin: models.User = Depends(get_current_admin),
+    admin: models.User = Depends(get_current_admin),
 ):
-    """WhatsApp panel feed — recent notifications across all customers."""
+    """WhatsApp panel feed — recent notifications across customers. Stylist
+    staff accounts see only messages tied to bookings in their own chair."""
+    if admin.stylist_id:
+        own_slots = await models.BookingSlot.find(
+            models.BookingSlot.stylist_id == admin.stylist_id
+        ).to_list()
+        own_ids = list({s.booking_id for s in own_slots})
+        own_primary = await models.Booking.find(
+            models.Booking.stylist_id == admin.stylist_id).to_list()
+        booking_ids = list({b.id for b in own_primary} | set(own_ids))
+        if not booking_ids:
+            return []
+        return await models.Notification.find(
+            {"booking_id": {"$in": booking_ids}}
+        ).sort(-models.Notification.created_at).limit(max(1, min(limit, 200))).to_list()
+
     return await models.Notification.find_all().sort(
         -models.Notification.created_at
     ).limit(max(1, min(limit, 200))).to_list()

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import models, schemas
 from beanie import PydanticObjectId
 from limiter import limiter
+from services.timeoff import stylist_is_off
 
 router = APIRouter(prefix="/availability", tags=["Availability"])
 
@@ -63,6 +64,13 @@ async def get_availability(
     # IS a booked interval [time_slot, time_slot + duration_mins). Rows carry
     # REAL start times (services run back-to-back), so a stylist's busy map is
     # a set of minute intervals, not whole hours.
+    is_off = await stylist_is_off(stylist_id, date)
+    if is_off:
+        # Marked off: no bookable slots at all. Busy stays empty — the UI
+        # keys off stylist_off and greys the whole day.
+        return schemas.AvailabilityResponse(
+            stylist_id=stylist_id, date=date, busy=[], stylist_off=True)
+
     query = [models.BookingSlot.stylist_id == stylist_id,
              models.BookingSlot.date == date]
     if exclude_booking_id:

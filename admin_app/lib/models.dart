@@ -9,8 +9,24 @@ class UserModel {
   final String email;
   final String? phone;
   final bool isAdmin;
+  // Staff identity — mirrors UserOut on the backend: "owner" (is_admin, no
+  // stylist link) or "stylist" (is_admin + stylist_id). Stylists act only on
+  // their own chair; the owner sees everything.
+  final String role; // owner | stylist | customer
+  final String? stylistId;
 
-  UserModel({required this.id, required this.name, required this.email, this.phone, required this.isAdmin});
+  UserModel({
+    required this.id,
+    required this.name,
+    required this.email,
+    this.phone,
+    required this.isAdmin,
+    this.role = 'customer',
+    this.stylistId,
+  });
+
+  bool get isOwner => role == 'owner';
+  bool get isStylist => role == 'stylist';
 
   factory UserModel.fromJson(Map<String, dynamic> j) => UserModel(
         id: j['id'].toString(),
@@ -18,6 +34,8 @@ class UserModel {
         email: j['email'] ?? '',
         phone: j['phone'],
         isAdmin: j['is_admin'] == true,
+        role: j['role'] ?? 'customer',
+        stylistId: j['stylist_id']?.toString(),
       );
 }
 
@@ -195,5 +213,279 @@ class NotificationModel {
         deliveryStatus: (j['delivery_status'] ?? 'pending').toString(),
         sentAt: j['sent_at'] == null ? null : DateTime.tryParse(j['sent_at']),
         createdAt: j['created_at'] == null ? null : DateTime.tryParse(j['created_at']),
+      );
+}
+
+// ── Time off ──────────────────────────────────────────────────────────────────
+
+class TimeOffModel {
+  final String id;
+  final String stylistId;
+  final String start; // "YYYY-MM-DD" inclusive
+  final String end; // "YYYY-MM-DD" inclusive
+  final String? reason;
+  final DateTime? createdAt;
+
+  TimeOffModel({
+    required this.id,
+    required this.stylistId,
+    required this.start,
+    required this.end,
+    this.reason,
+    this.createdAt,
+  });
+
+  factory TimeOffModel.fromJson(Map<String, dynamic> j) => TimeOffModel(
+        id: j['id'].toString(),
+        stylistId: j['stylist_id']?.toString() ?? '',
+        start: j['start'] ?? '',
+        end: j['end'] ?? '',
+        reason: j['reason'],
+        createdAt: j['created_at'] == null
+            ? null
+            : DateTime.tryParse(j['created_at']),
+      );
+}
+
+/// One row of the 409 conflict list — a booking that blocks a time-off range.
+class TimeOffConflict {
+  final String bookingId;
+  final String date;
+  final String? timeSlot;
+  final String status;
+  final String source;
+
+  TimeOffConflict({
+    required this.bookingId,
+    required this.date,
+    this.timeSlot,
+    required this.status,
+    required this.source,
+  });
+
+  factory TimeOffConflict.fromJson(Map<String, dynamic> j) => TimeOffConflict(
+        bookingId: j['booking_id']?.toString() ?? '',
+        date: j['date'] ?? '',
+        timeSlot: j['time_slot'],
+        status: j['status'] ?? '',
+        source: j['source'] ?? 'online',
+      );
+}
+
+/// Thrown by POST /stylists/time-off/me with 409 when the range overlaps an
+/// existing range (message only) or holds active bookings (message + list).
+class TimeOffConflictException implements Exception {
+  final String message;
+  final List<TimeOffConflict> conflicts;
+  TimeOffConflictException(this.message, this.conflicts);
+
+  @override
+  String toString() => message;
+}
+
+// ── Economy ───────────────────────────────────────────────────────────────────
+
+/// Same fixed category ids/labels as backend EXPENSE_CATEGORIES — keep in
+/// sync (the backend rejects anything else with 400).
+const kExpenseCategories = <(String, String)>[
+  ('rent', 'Rent'),
+  ('products', 'Products'),
+  ('salaries', 'Salaries'),
+  ('utilities', 'Utilities'),
+  ('marketing', 'Marketing'),
+  ('maintenance', 'Maintenance'),
+  ('other', 'Other'),
+];
+
+String expenseCategoryLabel(String id) {
+  for (final (cid, label) in kExpenseCategories) {
+    if (cid == id) return label;
+  }
+  return id.isEmpty ? '—' : id;
+}
+
+class ExpenseModel {
+  final String id;
+  final String date; // "YYYY-MM-DD"
+  final String category;
+  final String? description;
+  final num amount;
+
+  ExpenseModel({
+    required this.id,
+    required this.date,
+    required this.category,
+    this.description,
+    required this.amount,
+  });
+
+  factory ExpenseModel.fromJson(Map<String, dynamic> j) => ExpenseModel(
+        id: j['id'].toString(),
+        date: j['date'] ?? '',
+        category: j['category'] ?? '',
+        description: j['description'],
+        amount: j['amount'] ?? 0,
+      );
+}
+
+class BudgetCategoryStatus {
+  final String category;
+  final num target;
+  final num spent;
+
+  BudgetCategoryStatus({
+    required this.category,
+    this.target = 0,
+    this.spent = 0,
+  });
+
+  factory BudgetCategoryStatus.fromJson(Map<String, dynamic> j) =>
+      BudgetCategoryStatus(
+        category: j['category'] ?? '',
+        target: j['target'] ?? 0,
+        spent: j['spent'] ?? 0,
+      );
+}
+
+class BudgetResponseModel {
+  final String month; // "YYYY-MM"
+  final List<BudgetCategoryStatus> categories;
+
+  BudgetResponseModel({required this.month, this.categories = const []});
+
+  factory BudgetResponseModel.fromJson(Map<String, dynamic> j) =>
+      BudgetResponseModel(
+        month: j['month'] ?? '',
+        categories: (j['categories'] as List<dynamic>? ?? [])
+            .map((e) => BudgetCategoryStatus.fromJson(e))
+            .toList(),
+      );
+}
+
+class EconomySummaryModel {
+  final String fromDate;
+  final String toDate;
+  final num income;
+  final num expenses;
+  final num net;
+  final int bookingsTotal;
+  final int bookingsConfirmed;
+  final int bookingsCancelled;
+  final int bookingsDeclined;
+  final int walkIns;
+  final int online;
+  final Map<String, num> incomeByCategory;
+  final Map<String, num> incomeByStylist;
+  final Map<String, num> expensesByCategory;
+  final List<EconomyDailyPoint> daily;
+
+  EconomySummaryModel({
+    required this.fromDate,
+    required this.toDate,
+    this.income = 0,
+    this.expenses = 0,
+    this.net = 0,
+    this.bookingsTotal = 0,
+    this.bookingsConfirmed = 0,
+    this.bookingsCancelled = 0,
+    this.bookingsDeclined = 0,
+    this.walkIns = 0,
+    this.online = 0,
+    this.incomeByCategory = const {},
+    this.incomeByStylist = const {},
+    this.expensesByCategory = const {},
+    this.daily = const [],
+  });
+
+  factory EconomySummaryModel.fromJson(Map<String, dynamic> j) =>
+      EconomySummaryModel(
+        fromDate: j['from_date'] ?? '',
+        toDate: j['to_date'] ?? '',
+        income: j['income'] ?? 0,
+        expenses: j['expenses'] ?? 0,
+        net: j['net'] ?? 0,
+        bookingsTotal: j['bookings_total'] ?? 0,
+        bookingsConfirmed: j['bookings_confirmed'] ?? 0,
+        bookingsCancelled: j['bookings_cancelled'] ?? 0,
+        bookingsDeclined: j['bookings_declined'] ?? 0,
+        walkIns: j['walk_ins'] ?? 0,
+        online: j['online'] ?? 0,
+        incomeByCategory: _numMap(j['income_by_category']),
+        incomeByStylist: _numMap(j['income_by_stylist']),
+        expensesByCategory: _numMap(j['expenses_by_category']),
+        daily: (j['daily'] as List<dynamic>? ?? [])
+            .map((e) => EconomyDailyPoint.fromJson(e))
+            .toList(),
+      );
+
+  static Map<String, num> _numMap(dynamic v) {
+    if (v is Map<String, dynamic>) {
+      return v.map((k, e) => MapEntry(k, (e as num?) ?? 0));
+    }
+    return {};
+  }
+}
+
+class EconomyDailyPoint {
+  final String date;
+  final num income;
+  final num expense;
+
+  EconomyDailyPoint({required this.date, this.income = 0, this.expense = 0});
+
+  factory EconomyDailyPoint.fromJson(Map<String, dynamic> j) =>
+      EconomyDailyPoint(
+        date: j['date'] ?? '',
+        income: j['income'] ?? 0,
+        expense: j['expense'] ?? 0,
+      );
+}
+
+/// Availability call result — [stylistOff] is the backend's flag that the
+/// stylist marked this date off (busy stays empty; UI greys the whole day).
+class AvailabilityResult {
+  final List<BusyInterval> busy;
+  final bool stylistOff;
+
+  AvailabilityResult({required this.busy, this.stylistOff = false});
+}
+
+// ── Off-day roster ────────────────────────────────────────────────────────────
+
+/// One stylist's working status for a specific date (StylistAvailabilityOut).
+class StylistAvailability {
+  final StylistModel stylist;
+  final bool isOff;
+
+  StylistAvailability({required this.stylist, this.isOff = false});
+
+  factory StylistAvailability.fromJson(Map<String, dynamic> j) =>
+      StylistAvailability(
+        stylist: StylistModel.fromJson(j['stylist'] ?? {}),
+        isOff: j['is_off'] == true,
+      );
+}
+
+/// GET /stylists/available response — working vs off for one date.
+class StylistsAvailable {
+  final String date;
+  final List<StylistAvailability> working;
+  final List<StylistAvailability> off;
+
+  StylistsAvailable({
+    required this.date,
+    this.working = const [],
+    this.off = const [],
+  });
+
+  factory StylistsAvailable.fromJson(Map<String, dynamic> j) =>
+      StylistsAvailable(
+        date: j['date'] ?? '',
+        working: (j['working'] as List<dynamic>? ?? [])
+            .map((e) => StylistAvailability.fromJson(e))
+            .toList(),
+        off: (j['off'] as List<dynamic>? ?? [])
+            .map((e) => StylistAvailability.fromJson(e))
+            .toList(),
       );
 }

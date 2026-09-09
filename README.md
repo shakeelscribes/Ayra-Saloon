@@ -16,6 +16,39 @@ A complete booking platform for a working salon — customer website, staff pane
 | --- | --- |
 | ![Staff dashboard](docs/screenshots/admin-dashboard.png) | ![Staff schedule](docs/screenshots/admin-schedule.png) |
 
+## What it does
+
+The salon takes bookings through the website. Every new booking lands on the assigned stylist's phone as an insistent, impossible-to-miss alert. The stylist approves or declines it from the chair; schedule, earnings and time-off live in the same app. Customers get email confirmations with calendar invites.
+
+### Customer site (`frontend/`)
+
+- Multi-step booking wizard: service catalogue (categorised, priced, with durations) → stylist → date & time
+- Live slot availability computed server-side by the scheduling engine — no double-booking, no stale slots
+- Customer accounts (JWT) with booking history
+- Email confirmation with an `.ics` calendar invite (Resend)
+
+### Staff panel (`frontend-admin/`)
+
+- Chair-scoped dashboard: pending booking approvals, daily and monthly earnings
+- Day-grouped schedule — each stylist sees only their own chair
+- Walk-in / phone booking entry ("New Appointment")
+- WhatsApp message log
+
+### Stylist app (`admin_app/`, Flutter)
+
+- Insistent new-booking alerts: full-screen notification, looping chime, exact-alarm re-fire until acknowledged
+- Approve / decline bookings from the floor
+- Schedule, earnings, time-off requests, new appointments
+- Portrait-locked UI, custom alert chime, FCM device registration
+
+### API (`backend/`)
+
+- FastAPI + MongoDB (Motor / Beanie ODM)
+- Modules: auth, users, stylists, services, availability, bookings, economy, devices, notifications
+- JWT + bcrypt auth, slowapi rate limiting, CORS allow-list
+- Firebase Cloud Messaging push with per-device registration
+- Resend email + `.ics` calendar invites, WhatsApp log, stylist time-off
+
 ## Architecture
 
 ```
@@ -40,13 +73,6 @@ A complete booking platform for a working salon — customer website, staff pane
           │  invites            │     └──────────────────────┘
           └─────────────────────┘
 ```
-
-Four codebases, one API:
-
-- **`backend/`** — FastAPI + MongoDB (Motor/Beanie). JWT auth with bcrypt, rate limiting (slowapi), FCM push (`push.py`), device registration (`routes/devices.py`), email + calendar invites via Resend (`services/emailer.py`, `services/ics.py`), WhatsApp message log (`services/whatsapp.py`).
-- **`frontend/`** — customer-facing booking site. Multi-step booking wizard with live slot availability, service catalogue, stylist selection.
-- **`frontend-admin/`** — staff panel. Chair-scoped dashboard (pending approvals, daily/monthly earnings), day-grouped schedule, walk-in appointment entry.
-- **`admin_app/`** — Flutter app for stylists. Receives insistent new-booking alerts, manages the chair from the floor: approve/decline, schedule, economy, time-off.
 
 ## Engineering highlights
 
@@ -76,41 +102,18 @@ Salon services have durations, not fixed slots — a 45-minute haircut at 19:30 
 - bcrypt password hashing, slowapi rate limiting, CORS allow-list via env.
 - Secrets (`.env`, Firebase service account) are gitignored; only public client config is committed.
 
-## Run it locally
+## Repo layout
 
-**Backend** (Python 3.12+):
-
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-pip install -r requirements.txt
-copy .env.example .env          # then fill in MONGODB_URL + SECRET_KEY
-uvicorn main:app --reload --port 8000
 ```
-
-**Customer site:**
-
-```bash
-cd frontend
-npm install
-npm run dev                     # http://localhost:5173
-```
-
-**Staff panel:**
-
-```bash
-cd frontend-admin
-npm install
-npm run dev                     # http://localhost:5174
-```
-
-**Flutter admin app** (points at your machine's LAN IP so a physical phone can reach it):
-
-```bash
-cd admin_app
-flutter pub get
-flutter run --dart-define=AYRA_HOST=<your-lan-ip>
+├── backend/           FastAPI API server
+│   ├── routes/        auth, users, stylists, services, availability,
+│   │                  bookings, economy, devices, notifications
+│   ├── services/      emailer (Resend), ics, whatsapp, timeoff
+│   └── push.py        Firebase Cloud Messaging
+├── frontend/          Customer booking site (React + Vite + Tailwind)
+├── frontend-admin/    Staff panel (React + Vite)
+├── admin_app/         Stylist Android app (Flutter)
+└── docs/screenshots/  README imagery
 ```
 
 ## Status

@@ -216,6 +216,27 @@ class NotificationModel {
       );
 }
 
+// ── Customer lookup (walk-in form autofill) ──────────────────────────────────
+
+/// GET /users/lookup answer — a minimal customer snapshot for the walk-in
+/// form. found=false for unknown numbers AND staff accounts, so the form
+/// never pre-fills from an admin/stylist record.
+class CustomerLookup {
+  final bool found;
+  final String? name;
+  final String? email;
+  final String? phone;
+
+  CustomerLookup({required this.found, this.name, this.email, this.phone});
+
+  factory CustomerLookup.fromJson(Map<String, dynamic> j) => CustomerLookup(
+        found: j['found'] == true,
+        name: j['name']?.toString(),
+        email: j['email']?.toString(),
+        phone: j['phone']?.toString(),
+      );
+}
+
 // ── Time off ──────────────────────────────────────────────────────────────────
 
 class TimeOffModel {
@@ -438,6 +459,147 @@ class EconomyDailyPoint {
         date: j['date'] ?? '',
         income: j['income'] ?? 0,
         expense: j['expense'] ?? 0,
+      );
+}
+
+// ── Stylist's own earnings (GET /economy/me/summary) ─────────────────────────
+
+/// The "Next up" hint on the stylist dashboard — their earliest upcoming
+/// confirmed booking. All fields defensive: the backend may omit any.
+class NextAppointmentModel {
+  final String bookingId;
+  final String date;
+  final String? timeSlot;
+  final String? customerName;
+  final List<String> services;
+
+  NextAppointmentModel({
+    required this.bookingId,
+    required this.date,
+    this.timeSlot,
+    this.customerName,
+    this.services = const [],
+  });
+
+  factory NextAppointmentModel.fromJson(Map<String, dynamic> j) =>
+      NextAppointmentModel(
+        bookingId: j['booking_id']?.toString() ?? '',
+        date: j['date'] ?? '',
+        timeSlot: j['time_slot']?.toString(),
+        customerName: j['customer_name']?.toString(),
+        services: (j['services'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toList(),
+      );
+}
+
+/// The signed-in stylist's OWN numbers — never salon-wide. Mirrors
+/// StylistMeSummary on the backend.
+class StylistMeSummaryModel {
+  final String today; // "YYYY-MM-DD" (IST)
+  final String month; // "YYYY-MM" (IST)
+  final num todayRevenue;
+  final int todayBookings;
+  final num monthRevenue;
+  final int monthBookings;
+  final NextAppointmentModel? nextAppointment;
+
+  StylistMeSummaryModel({
+    required this.today,
+    required this.month,
+    this.todayRevenue = 0,
+    this.todayBookings = 0,
+    this.monthRevenue = 0,
+    this.monthBookings = 0,
+    this.nextAppointment,
+  });
+
+  factory StylistMeSummaryModel.fromJson(Map<String, dynamic> j) =>
+      StylistMeSummaryModel(
+        today: j['today'] ?? '',
+        month: j['month'] ?? '',
+        todayRevenue: j['today_revenue'] ?? 0,
+        todayBookings: j['today_bookings'] ?? 0,
+        monthRevenue: j['month_revenue'] ?? 0,
+        monthBookings: j['month_bookings'] ?? 0,
+        nextAppointment: j['next_appointment'] is Map<String, dynamic>
+            ? NextAppointmentModel.fromJson(
+                j['next_appointment'] as Map<String, dynamic>)
+            : null,
+      );
+}
+
+// ── Owner's per-stylist performance (GET /economy/by-stylist) ────────────────
+
+/// One service inside a stylist's top-services list.
+class TopServiceModel {
+  final String name;
+  final int count;
+  final num revenue;
+
+  TopServiceModel({required this.name, this.count = 0, this.revenue = 0});
+
+  factory TopServiceModel.fromJson(Map<String, dynamic> j) => TopServiceModel(
+        name: j['name'] ?? '',
+        count: j['count'] ?? 0,
+        revenue: j['revenue'] ?? 0,
+      );
+}
+
+/// Per-stylist aggregates for the owner's Economy → By Stylist tab. Mirrors
+/// StylistPerformance on the backend.
+class StylistPerformanceModel {
+  final String stylistId;
+  final String stylistName;
+  final num revenue;
+  final int bookings; // distinct bookings involving this stylist
+  final int slots; // individual services performed
+  final num bookedHours;
+  final List<TopServiceModel> topServices; // best-first
+
+  StylistPerformanceModel({
+    required this.stylistId,
+    required this.stylistName,
+    this.revenue = 0,
+    this.bookings = 0,
+    this.slots = 0,
+    this.bookedHours = 0,
+    this.topServices = const [],
+  });
+
+  factory StylistPerformanceModel.fromJson(Map<String, dynamic> j) =>
+      StylistPerformanceModel(
+        stylistId: j['stylist_id']?.toString() ?? '',
+        stylistName: j['stylist_name'] ?? '',
+        revenue: j['revenue'] ?? 0,
+        bookings: j['bookings'] ?? 0,
+        slots: j['slots'] ?? 0,
+        bookedHours: j['booked_hours'] ?? 0,
+        topServices: (j['top_services'] as List<dynamic>? ?? [])
+            .map((e) => TopServiceModel.fromJson(e))
+            .toList(),
+      );
+}
+
+/// GET /economy/by-stylist response — confirmed bookings only, [from, to].
+class ByStylistResponseModel {
+  final String fromDate;
+  final String toDate;
+  final List<StylistPerformanceModel> stylists;
+
+  ByStylistResponseModel({
+    required this.fromDate,
+    required this.toDate,
+    this.stylists = const [],
+  });
+
+  factory ByStylistResponseModel.fromJson(Map<String, dynamic> j) =>
+      ByStylistResponseModel(
+        fromDate: j['from_date'] ?? '',
+        toDate: j['to_date'] ?? '',
+        stylists: (j['stylists'] as List<dynamic>? ?? [])
+            .map((e) => StylistPerformanceModel.fromJson(e))
+            .toList(),
       );
 }
 

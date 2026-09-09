@@ -40,6 +40,7 @@ const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'stylists', label: 'By Stylist' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'budget', label: 'Budget' },
 ]
@@ -69,6 +70,10 @@ export default function Economy() {
   const [expDesc, setExpDesc] = useState('')
   const [expAmount, setExpAmount] = useState('')
   const [expSaving, setExpSaving] = useState(false)
+
+  // By Stylist tab — same default window as the summary
+  const [byStylist, setByStylist] = useState(null)
+  const [loadingStylists, setLoadingStylists] = useState(true)
 
   const fetchSummary = useCallback(async () => {
     setLoading(true)
@@ -110,6 +115,22 @@ export default function Economy() {
   }, [from, to])
 
   useEffect(() => { fetchExpenses() }, [fetchExpenses])
+
+  // By Stylist aggregates — re-fetch when the shared range moves
+  const fetchByStylist = useCallback(async () => {
+    setLoadingStylists(true)
+    try {
+      const { data } = await client.get(`/economy/by-stylist?from=${from}&to=${to}`)
+      setByStylist(data)
+    } catch {
+      toast.error('Could not load stylist stats')
+      setByStylist(null)
+    } finally {
+      setLoadingStylists(false)
+    }
+  }, [from, to])
+
+  useEffect(() => { fetchByStylist() }, [fetchByStylist])
 
   const exportCsv = (type) => {
     // Auth header comes from the shared axios client — fetch() would drop it,
@@ -226,8 +247,8 @@ export default function Economy() {
           ))}
         </div>
 
-        {/* Range picker — overview + export share it */}
-        {tab === 'overview' && (
+        {/* Range picker — overview + by-stylist share it */}
+        {(tab === 'overview' || tab === 'stylists') && (
           <div className="glass-card p-5 mb-8 flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="eco-from">From</label>
@@ -237,15 +258,19 @@ export default function Economy() {
               <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="eco-to">To</label>
               <input id="eco-to" type="date" value={to} onChange={e => setTo(e.target.value)} className="luxury-input max-w-xs" />
             </div>
-            <button onClick={() => exportCsv('income')} className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5">
-              <Download className="w-3.5 h-3.5" /> Income CSV
-            </button>
-            <button onClick={() => exportCsv('bookings')} className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5">
-              <Download className="w-3.5 h-3.5" /> Bookings CSV
-            </button>
-            <button onClick={() => exportCsv('expenses')} className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5">
-              <Download className="w-3.5 h-3.5" /> Expenses CSV
-            </button>
+            {tab === 'overview' && (
+              <>
+                <button onClick={() => exportCsv('income')} className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5" /> Income CSV
+                </button>
+                <button onClick={() => exportCsv('bookings')} className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5" /> Bookings CSV
+                </button>
+                <button onClick={() => exportCsv('expenses')} className="btn-outline !px-4 !py-2 text-xs inline-flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5" /> Expenses CSV
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -349,6 +374,77 @@ export default function Economy() {
                   </h2>
                   <Breakdown rows={summary.expenses_by_category} empty="No expenses recorded." />
                 </div>
+              </div>
+            </>
+          )
+        )}
+
+        {/* ── By Stylist ────────────────────────────────────────────────── */}
+        {tab === 'stylists' && (
+          loadingStylists ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map(i => <div key={i} className="glass-card h-24 animate-pulse" />)}
+            </div>
+          ) : !byStylist || byStylist.stylists.length === 0 ? (
+            <div className="glass-card p-10 text-center text-emerald-300">No stylist data for this window.</div>
+          ) : (
+            <>
+              <p className="text-emerald-500 text-xs mb-4">
+                Per-stylist performance {byStylist.from_date} → {byStylist.to_date} · confirmed bookings only
+              </p>
+              {/* Revenue bar — relative to the top earner */}
+              <div className="space-y-3 mb-8">
+                {byStylist.stylists.map(s => {
+                  const max = Math.max(...byStylist.stylists.map(x => x.revenue), 1)
+                  return (
+                    <div key={s.stylist_id} className="glass-card p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <span className="text-cream text-sm font-medium flex items-center gap-2">
+                          <Scissors className="w-3.5 h-3.5 text-gold-400" /> {s.stylist_name}
+                        </span>
+                        <span className="text-gold-400 text-sm font-semibold">{inr(s.revenue)}</span>
+                      </div>
+                      <div className="w-full bg-emerald-900 rounded-full h-1.5 mb-2">
+                        <div className="h-1.5 rounded-full transition-all duration-500" style={{ width: `${(s.revenue / max) * 100}%`, background: 'linear-gradient(90deg, #c9a84c, #f0d080)' }} />
+                      </div>
+                      <p className="text-emerald-300 text-xs">
+                        {s.bookings} booking{s.bookings !== 1 ? 's' : ''} · {s.slots} services · {s.booked_hours % 1 ? s.booked_hours.toFixed(1) : s.booked_hours} h booked
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Detail table */}
+              <div className="glass-card p-6 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-emerald-300 text-xs uppercase tracking-wider border-b border-emerald-700">
+                      <th className="text-left py-2 pr-4">Stylist</th>
+                      <th className="text-right py-2 px-4">Revenue</th>
+                      <th className="text-right py-2 px-4">Bookings</th>
+                      <th className="text-right py-2 px-4">Services</th>
+                      <th className="text-right py-2 px-4">Hours</th>
+                      <th className="text-left py-2 pl-4">Top services</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byStylist.stylists.map(s => (
+                      <tr key={s.stylist_id} className="border-b border-emerald-800/60 last:border-0">
+                        <td className="py-3 pr-4 text-cream">{s.stylist_name}</td>
+                        <td className="py-3 px-4 text-right text-gold-400 font-semibold">{inr(s.revenue)}</td>
+                        <td className="py-3 px-4 text-right text-cream">{s.bookings}</td>
+                        <td className="py-3 px-4 text-right text-cream">{s.slots}</td>
+                        <td className="py-3 px-4 text-right text-cream">{s.booked_hours % 1 ? s.booked_hours.toFixed(1) : s.booked_hours}</td>
+                        <td className="py-3 pl-4 text-emerald-300 text-xs">
+                          {s.top_services?.length
+                            ? s.top_services.map(ts => `${ts.name} ×${ts.count}`).join(' · ')
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </>
           )

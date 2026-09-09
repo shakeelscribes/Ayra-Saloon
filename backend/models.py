@@ -209,3 +209,21 @@ class Notification(Document):
     class Settings:
         name = "notifications"
         indexes = ["booking_id", "user_id"]
+
+
+class DeviceToken(Document):
+    """FCM registration token for a staff device (Ayra Dashboard app).
+    One doc per (user, device token). Only stylist-role users register —
+    new-booking alerts target the assigned stylist's devices, never owners.
+    Tokens are pruned when FCM reports them unregistered (app uninstalled)."""
+    user_id: PydanticObjectId           # staff User who logged in on the device
+    token: str                          # FCM registration token
+    platform: str = "android"
+    updated_at: datetime = Field(default_factory=_now)
+
+    class Settings:
+        name = "device_tokens"
+        indexes = [
+            "user_id",
+            IndexModel([("token", 1)], unique=True, name="unique_fcm_token"),
+        ]

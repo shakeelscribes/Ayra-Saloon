@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 import models, schemas
-from auth import get_current_user
+from auth import get_current_admin, get_current_user
 
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -15,6 +15,32 @@ def normalize_phone(raw: str) -> str:
     if core.startswith("91") and len(core) == 12:
         return "+" + core
     return ("+" + core) if digits.startswith("+") else ("+" + core if core else "")
+
+
+@router.get("/lookup", response_model=schemas.CustomerLookupOut)
+async def lookup_customer(phone: str, _admin: models.User = Depends(get_current_admin)):
+    """Find a customer by phone for the walk-in form's autofill. Read-only —
+    the form fills from the snapshot; the account itself is never touched
+    (matching admin_create_booking's rule for matched customers).
+
+    Matching mirrors admin_create_booking exactly: digits only, then the
+    trailing 10 — stored formats vary ("98765 43210", "+91…"). Staff accounts
+    (is_admin) are never surfaced, so a stylist's own number can't pre-fill
+    the customer card."""
+    import re
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    if len(digits) < 10:
+        return schemas.CustomerLookupOut(found=False)
+    tail = digits[-10:]
+    user = await models.User.find_one({
+        "phone": {"$regex": re.escape(tail) + "$"},
+        "is_admin": {"$ne": True},
+    })
+    if not user:
+        return schemas.CustomerLookupOut(found=False)
+    return schemas.CustomerLookupOut(
+        found=True, id=user.id, name=user.name, email=user.email, phone=user.phone,
+    )
 
 
 @router.put("/me", response_model=schemas.UserOut)

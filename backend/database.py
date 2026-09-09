@@ -94,6 +94,7 @@ async def init_db():
                 models.Notification,
                 models.Expense,
                 models.BudgetTarget,
+                models.DeviceToken,
             ]
         )
     except ServerSelectionTimeoutError as e:

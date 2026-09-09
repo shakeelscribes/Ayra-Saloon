@@ -1,18 +1,22 @@
-"""Economy dashboard — the shared "money" side of the staff panel.
+"""Economy dashboard — the "money" side of the staff panel.
 
 Income is DERIVED from confirmed bookings (per-slot service prices, attributed
 to the slot's own stylist); expenses are manual entries here; budget targets
-are monthly per-category goals. Every endpoint is staff-only (owner + both
-stylists see the same salon-wide numbers)."""
+are monthly per-category goals.
+
+Access split: salon-wide numbers (summary, expenses, budgets, exports,
+per-stylist stats) are OWNER-only. Stylist staff get their own scoped slice
+via /economy/me/summary — their chair's revenue and next appointment only."""
 import csv
 import io
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from beanie import PydanticObjectId
+from beanie.operators import In
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 import models, schemas
-from auth import get_current_admin
+from auth import get_current_owner, get_current_stylist_user
 
 router = APIRouter(prefix="/economy", tags=["Economy"])
 
@@ -76,6 +80,7 @@ async def _income_rows(from_date: str, to_date: str):
                 "slot": s,
                 "price": (svc.price if svc else 0) or 0,
                 "category": (svc.category if svc else "general") or "general",
+                "service_name": (svc.name if svc else "Unknown"),
                 "stylist_name": (sty.name if sty else "Unknown"),
             })
     return bookings, slot_rows
@@ -85,7 +90,7 @@ async def _income_rows(from_date: str, to_date: str):
 async def economy_summary(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    _admin: models.User = Depends(get_current_admin),
+    _admin: models.User = Depends(get_current_owner),
 ):
     f, t = _validate_range(from_date, to_date)
 
@@ -146,7 +151,7 @@ async def economy_summary(
 async def list_expenses(
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    _admin: models.User = Depends(get_current_admin),
+    _admin: models.User = Depends(get_current_owner),
 ):
     f, t = _validate_range(from_date, to_date)
     return await models.Expense.find(
@@ -158,7 +163,7 @@ async def list_expenses(
 @router.post("/expenses", response_model=schemas.ExpenseOut, status_code=201)
 async def add_expense(
     body: schemas.ExpenseCreate,
-    admin: models.User = Depends(get_current_admin),
+    admin: models.User = Depends(get_current_owner),
 ):
     try:
         datetime.strptime(body.date, "%Y-%m-%d")
@@ -185,7 +190,7 @@ async def add_expense(
 @router.delete("/expenses/{expense_id}", status_code=204)
 async def delete_expense(
     expense_id: PydanticObjectId,
-    _admin: models.User = Depends(get_current_admin),
+    _admin: models.User = Depends(get_current_owner),
 ):
     expense = await models.Expense.get(expense_id)
     if not expense:
@@ -197,7 +202,7 @@ async def delete_expense(
 @router.get("/budgets", response_model=schemas.BudgetResponse)
 async def get_budgets(
     month: str = Query(None, description="YYYY-MM, defaults to current month"),
-    _admin: models.User = Depends(get_current_admin),
+    _admin: models.User = Depends(get_current_owner),
 ):
     m = _validate_month(month)
     targets = {t.category: t.amount for t in await models.BudgetTarget.find(
@@ -224,7 +229,7 @@ async def get_budgets(
 async def set_budget(
     body: schemas.BudgetTargetIn,
     month: str = Query(None, description="YYYY-MM, defaults to current month"),
-    _admin: models.User = Depends(get_current_admin),
+    _admin: models.User = Depends(get_current_owner),
 ):
     m = _validate_month(month)
     if body.category not in EXPENSE_CATEGORIES:
@@ -269,7 +274,7 @@ async def export_csv(
     type: str = Query(..., description="bookings | income | expenses"),
     from_date: str = Query(None, alias="from"),
     to_date: str = Query(None, alias="to"),
-    _admin: models.User = Depends(get_current_admin),
+    _admin: models.User = Depends(get_current_owner),
 ):
     f, t = _validate_range(from_date, to_date)
 
@@ -331,3 +336,132 @@ async def export_csv(
         )
 
     raise HTTPException(status_code=400, detail="type must be bookings, income or expenses")
+
+
+# ── Stylist's own slice ───────────────────────────────────────────────────────
+@router.get("/me/summary", response_model=schemas.StylistMeSummary)
+async def my_summary(
+    stylist_user: models.User = Depends(get_current_stylist_user),
+):
+    """The logged-in stylist's own numbers, scoped by their token's stylist_id
+    (never a client-sent id): today's + this month's confirmed revenue and
+    booking count from their chair, and their next upcoming appointment."""
+    sid = stylist_user.stylist_id
+    today = _ist_today()
+    month = today[:7]
+
+    slots = await models.BookingSlot.find(
+        models.BookingSlot.stylist_id == sid,
+        models.BookingSlot.date >= f"{month}-01",
+        models.BookingSlot.date <= today,
+    ).to_list()
+    booking_ids = {s.booking_id for s in slots}
+    bookings = await models.Booking.find(
+        In(models.Booking.id, list(booking_ids)),
+        models.Booking.status == models.BookingStatus.confirmed,
+    ).to_list() if booking_ids else []
+    confirmed = {b.id for b in bookings}
+    services = {s.id: s for s in await models.Service.find_all().to_list()}
+
+    def _row_rev(slot):
+        svc = services.get(slot.service_id)
+        return (svc.price if svc else 0) or 0
+
+    today_slots = [s for s in slots if s.date == today and s.booking_id in confirmed]
+    month_slots = [s for s in slots if s.booking_id in confirmed]
+
+    # Next upcoming appointment: today's FUTURE slots first, else future dates.
+    def _slot_start(s):
+        h, m = s.time_slot.split(":")
+        return (s.date, int(h) * 60 + int(m))
+    now_mins = datetime.now(_IST)
+    now_key = now_mins.hour * 60 + now_mins.minute
+    upcoming = sorted(
+        [s for s in slots if s.booking_id in confirmed and s.date > today],
+        key=_slot_start,
+    )
+    today_future = sorted(
+        [s for s in today_slots if _slot_start(s)[1] > now_key],
+        key=_slot_start,
+    )
+    next_slot = today_future[0] if today_future else (upcoming[0] if upcoming else None)
+
+    next_appt = None
+    if next_slot:
+        b = next((x for x in bookings if x.id == next_slot.booking_id), None)
+        cust = await models.User.get(next_slot.user_id) if next_slot.user_id else None
+        svc_names = [
+            services[s.service_id].name
+            for s in sorted(slots, key=lambda x: x.sequence)
+            if s.booking_id == next_slot.booking_id and s.service_id in services
+        ]
+        next_appt = {
+            "booking_id": str(next_slot.booking_id),
+            "date": next_slot.date,
+            "time_slot": next_slot.time_slot,
+            "customer_name": (cust.name if cust else "Customer"),
+            "services": svc_names,
+        }
+
+    return schemas.StylistMeSummary(
+        today=today,
+        month=month,
+        today_revenue=round(sum(_row_rev(s) for s in today_slots), 2),
+        today_bookings=len({s.booking_id for s in today_slots}),
+        month_revenue=round(sum(_row_rev(s) for s in month_slots), 2),
+        month_bookings=len({s.booking_id for s in month_slots}),
+        next_appointment=next_appt,
+    )
+
+
+# ── Owner: per-stylist performance ───────────────────────────────────────────
+@router.get("/by-stylist", response_model=schemas.ByStylistResponse)
+async def by_stylist(
+    from_date: str = Query(None, alias="from"),
+    to_date: str = Query(None, alias="to"),
+    _admin: models.User = Depends(get_current_owner),
+):
+    """Owner-only per-stylist aggregates for the range: revenue, booking and
+    slot counts, booked hours and each stylist's top services (by revenue)."""
+    f, t = _validate_range(from_date, to_date)
+    _, slot_rows = await _income_rows(f, t)
+
+    stylists = {s.id: s for s in await models.Stylist.find_all().to_list()}
+    perf = {}
+    for r in slot_rows:
+        sid = str(r["slot"].stylist_id)
+        p = perf.setdefault(sid, {
+            "name": r["stylist_name"], "revenue": 0.0, "bookings": set(),
+            "slots": 0, "mins": 0, "services": {},
+        })
+        p["revenue"] += r["price"]
+        p["bookings"].add(r["booking"].id)
+        p["slots"] += 1
+        p["mins"] += (r["slot"].duration_mins or 60)
+        svc = p["services"].setdefault(r["service_name"], {"name": r["service_name"], "count": 0, "revenue": 0.0})
+        svc["count"] += 1
+        svc["revenue"] += r["price"]
+
+    out = []
+    for sid in sorted(perf, key=lambda s: perf[s]["revenue"], reverse=True):
+        p = perf[sid]
+        out.append(schemas.StylistPerformance(
+            stylist_id=sid,
+            stylist_name=p["name"],
+            revenue=round(p["revenue"], 2),
+            bookings=len(p["bookings"]),
+            slots=p["slots"],
+            booked_hours=round(p["mins"] / 60.0, 1),
+            top_services=sorted(
+                p["services"].values(),
+                key=lambda s: s["revenue"], reverse=True,
+            )[:5],
+        ))
+
+    # Stylists with zero confirmed work in the range still appear (at ₹0).
+    for sty_id, sty in stylists.items():
+        if str(sty_id) not in perf:
+            out.append(schemas.StylistPerformance(
+                stylist_id=str(sty_id), stylist_name=sty.name))
+
+    return schemas.ByStylistResponse(from_date=f, to_date=t, stylists=out)

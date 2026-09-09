@@ -53,6 +53,9 @@ async def _stale_booking_cleanup():
                         f"Your Ayra Unisex Salon request from {booking.date} expired before "
                         f"approval. Book again anytime!",
                     )
+                # Stylist devices may still be alarming for this stale pending.
+                from routes.bookings import push_booking_resolved
+                await push_booking_resolved(booking)
             if stale_pending or stale_proposals:
                 print(f"TTL cleanup: auto-declined {len(stale_pending) + len(stale_proposals)} stale booking(s).", flush=True)
         except asyncio.CancelledError:
@@ -95,6 +98,7 @@ from routes.bookings import router as bookings_router, write_history, write_noti
 from routes.notifications import router as notifications_router
 from routes.users import router as users_router
 from routes.economy import router as economy_router
+from routes.devices import router as devices_router
 
 app.include_router(auth_router)
 app.include_router(services_router)
@@ -104,6 +108,7 @@ app.include_router(bookings_router)
 app.include_router(notifications_router)
 app.include_router(users_router)
 app.include_router(economy_router)
+app.include_router(devices_router)
 
 # ── Seed database with initial data ───────────────────────────────────────────
 from auth import get_password_hash

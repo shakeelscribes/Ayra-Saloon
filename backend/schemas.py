@@ -33,6 +33,17 @@ class TokenResponse(BaseModel):
     token_type: str
     user: UserOut
 
+# ── Customer lookup (admin walk-in form autofill) ─────────────────────────────
+class CustomerLookupOut(BaseModel):
+    """Answer to GET /users/lookup — a minimal non-staff customer snapshot for
+    the walk-in form. found=False for unknown numbers AND staff accounts, so
+    the form never pre-fills from an admin/stylist record."""
+    found: bool
+    id: Optional[PydanticObjectId] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
 # ── Services ──────────────────────────────────────────────────────────────────
 class ServiceOut(BaseModel):
     id: PydanticObjectId
@@ -135,6 +146,33 @@ class EconomySummary(BaseModel):
     income_by_stylist: dict = {}        # stylist name -> sum
     expenses_by_category: dict = {}     # expense category -> sum
     daily: List[dict] = []              # [{date, income, expense}] for charts
+
+class StylistMeSummary(BaseModel):
+    """The logged-in stylist's OWN numbers — never another stylist's, never
+    salon-wide. Powers the compact earnings strip under their schedule."""
+    today: str                          # "YYYY-MM-DD" (IST)
+    month: str                          # "YYYY-MM" (IST)
+    today_revenue: float = 0
+    today_bookings: int = 0
+    month_revenue: float = 0
+    month_bookings: int = 0
+    next_appointment: Optional[dict] = None
+    # {booking_id, date, time_slot, customer_name, services: [names]}
+
+class StylistPerformance(BaseModel):
+    """Per-stylist aggregates for the owner's Economy → By Stylist tab."""
+    stylist_id: str
+    stylist_name: str
+    revenue: float = 0
+    bookings: int = 0                   # distinct bookings involving this stylist
+    slots: int = 0                      # individual services performed
+    booked_hours: float = 0
+    top_services: List[dict] = []       # [{name, count, revenue}] best-first
+
+class ByStylistResponse(BaseModel):
+    from_date: str
+    to_date: str
+    stylists: List[StylistPerformance] = []
 
 # ── Bookings ──────────────────────────────────────────────────────────────────
 class BookingItem(BaseModel):

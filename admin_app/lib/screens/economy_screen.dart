@@ -6,12 +6,14 @@ import '../models.dart' as m;
 import '../theme.dart';
 import 'home_shell.dart';
 
-/// Economy — the shared "money" side of the salon (owner + both stylists see
-/// the same salon-wide numbers; the backend enforces it, not this screen).
-/// Mirrors frontend-admin/src/components/Economy.jsx with three tabs:
+/// Economy — the salon-wide money view, OWNER-ONLY (stylists get 403 from
+/// every endpoint here; HomeShell hides the tab for them and their own
+/// earnings live on the Dashboard instead). Mirrors
+/// frontend-admin/src/components/Economy.jsx with four tabs:
 ///  · Overview — funnel, income/expense bars, by-stylist / by-category
 ///  · Expenses — list + add + delete within the range, CSV copy
 ///  · Budget — monthly per-category targets with spent progress
+///  · By Stylist — per-stylist revenue, bookings, hours, top services
 class EconomyScreen extends StatefulWidget {
   final HomeShellState shell;
   const EconomyScreen({super.key, required this.shell});
@@ -21,7 +23,7 @@ class EconomyScreen extends StatefulWidget {
 }
 
 class EconomyScreenState extends State<EconomyScreen> {
-  int _tab = 0; // 0 overview · 1 expenses · 2 budget
+  int _tab = 0; // 0 overview · 1 expenses · 2 budget · 3 by stylist
 
   String _from = '';
   String _to = '';
@@ -29,6 +31,11 @@ class EconomyScreenState extends State<EconomyScreen> {
   List<m.ExpenseModel> _expenses = [];
   bool _loading = true;
   String? _error;
+
+  // By Stylist tab (owner-only per-stylist performance)
+  m.ByStylistResponseModel? _byStylist;
+  bool _loadingStylists = false;
+  String? _stylistsError;
 
   // Budget tab
   String _month = '';
@@ -138,9 +145,32 @@ class EconomyScreenState extends State<EconomyScreen> {
     }
   }
 
+  /// Per-stylist performance for the By Stylist tab. Always refetches —
+  /// range changes and post-mutation refreshes must show fresh numbers.
+  Future<void> _loadByStylist() async {
+    setState(() {
+      _loadingStylists = true;
+      _stylistsError = null;
+    });
+    try {
+      final r = await Api.instance.byStylist(_from, _to);
+      if (!mounted) return;
+      setState(() {
+        _byStylist = r;
+        _loadingStylists = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.isAuthError) return widget.shell.handleAuthError();
+      setState(() {
+        _stylistsError = e.message;
+        _loadingStylists = false;
+      });
+    }
+  }
+
   /// Prev/next month navigation for the Budget tab.
-  void _shiftMonth(int delta) {
-    final d = DateTime.parse('$_month-01');
+  void _shiftMonth(int delta) {    final d = DateTime.parse('$_month-01');
     final next = DateTime(d.year, d.month + delta);
     setState(() => _month =
         '${next.year.toString().padLeft(4, '0')}-${next.month.toString().padLeft(2, '0')}');
@@ -151,32 +181,40 @@ class EconomyScreenState extends State<EconomyScreen> {
     setState(() => _tab = t);
     if (t == 1 && _expenses.isEmpty) _loadExpenses();
     if (t == 2 && _budget == null) _loadBudget();
+    if (t == 3) _loadByStylist();
   }
 
-  Future<void> _pickRange() async {
-    final initial = DateTime.tryParse(_to) ?? DateTime.now();
-    final pickedTo = await showDatePicker(
-      context: context,
-      initialDate: initial,
+  /// The range bar has two independent fields — tap one to change just that
+  /// end. Each picker is clamped by the other so From ≤ To always holds, and
+  /// To stays ≤ today (there is no future income to summarise).
+  Future<void> _pickFrom() async {
+    final current = DateTime.tryParse(_from) ?? DateTime.tryParse(istToday()) ?? DateTime.now();
+    final picked = await pickAyraDate(
+      context,
+      initialDate: current,
       firstDate: DateTime(2024),
-      lastDate: initial,
-      helpText: 'End of range',
+      lastDate: DateTime.tryParse(_to) ?? current,
+      helpText: 'FROM date',
     );
-    if (pickedTo == null) return;
-    if (!mounted) return;
-    final pickedFrom = await showDatePicker(
-      context: context,
-      initialDate: DateTime.tryParse(_from) ?? pickedTo,
-      firstDate: DateTime(2024),
-      lastDate: pickedTo,
-      helpText: 'Start of range',
-    );
-    if (pickedFrom == null) return;
-    setState(() {
-      _to = _fmt(pickedTo);
-      _from = _fmt(pickedFrom);
-    });
+    if (picked == null || !mounted) return;
+    setState(() => _from = _fmt(picked));
     _load();
+    _loadByStylist();
+  }
+
+  Future<void> _pickTo() async {
+    final current = DateTime.tryParse(_to) ?? DateTime.tryParse(istToday()) ?? DateTime.now();
+    final picked = await pickAyraDate(
+      context,
+      initialDate: current,
+      firstDate: DateTime.tryParse(_from) ?? DateTime(2024),
+      lastDate: DateTime.tryParse(istToday()) ?? DateTime.now(),
+      helpText: 'TO date',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _to = _fmt(picked));
+    _load();
+    _loadByStylist();
   }
 
   String _fmt(DateTime d) =>
@@ -307,12 +345,13 @@ class EconomyScreenState extends State<EconomyScreen> {
           _RangeBar(
             from: _from,
             to: _to,
-            onPick: _pickRange,
+            onPickFrom: _pickFrom,
+            onPickTo: _pickTo,
             onExport: _exportCsv,
           ),
           _TabBar(
             tab: _tab,
-            labels: const ['Overview', 'Expenses', 'Budget'],
+            labels: const ['Overview', 'Expenses', 'Budget', 'By Stylist'],
             onChanged: _setTab,
           ),
           Expanded(
@@ -354,6 +393,8 @@ class EconomyScreenState extends State<EconomyScreen> {
         return _buildExpenses();
       case 2:
         return _buildBudget();
+      case 3:
+        return _buildByStylist();
       default:
         return _buildOverview();
     }
@@ -646,6 +687,149 @@ class EconomyScreenState extends State<EconomyScreen> {
       ],
     );
   }
+
+  // ── By Stylist (owner-only per-stylist performance) ─────────────────────────
+  Widget _buildByStylist() {
+    if (_loadingStylists) {
+      return ListView(
+        children: const [
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: GlassCard(child: SizedBox(height: 120)),
+          ),
+        ],
+      );
+    }
+    if (_stylistsError != null) {
+      return ListView(
+        children: [
+          GlassCard(
+            child: Center(
+              child:
+                  Text(_stylistsError!, style: const TextStyle(color: red400)),
+            ),
+          ),
+        ],
+      );
+    }
+    final rows = _byStylist?.stylists ?? const [];
+    if (rows.isEmpty) {
+      return ListView(
+        children: const [
+          GlassCard(
+            child: Center(
+              child: Text(
+                'No confirmed bookings in this range.',
+                style: TextStyle(color: emerald300, fontSize: 13),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    final max = rows.fold<num>(0, (mx, s) => s.revenue > mx ? s.revenue : mx);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+      children: [
+        for (final s in rows)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.content_cut, size: 16, color: gold400),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          s.stylistName,
+                          style: const TextStyle(
+                              color: cream,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        inr(s.revenue),
+                        style: const TextStyle(
+                            color: gold400,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    // Retargets smoothly when the range changes.
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(
+                          begin: 0,
+                          end: max <= 0
+                              ? 0.0
+                              : (s.revenue / max).clamp(0.0, 1.0).toDouble()),
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeOutCubic,
+                      builder: (_, v, _) => LinearProgressIndicator(
+                        value: v,
+                        minHeight: 6,
+                        backgroundColor: emerald900,
+                        valueColor: const AlwaysStoppedAnimation(gold500),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${s.bookings} bookings · ${s.slots} services · '
+                    '${_hours(s.bookedHours)} h booked',
+                    style: const TextStyle(color: emerald300, fontSize: 11.5),
+                  ),
+                  if (s.topServices.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    for (final t in s.topServices.take(3))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                t.name,
+                                style: const TextStyle(
+                                    color: cream, fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              '${t.count}× · ${inr(t.revenue)}',
+                              style: const TextStyle(
+                                  color: emerald300, fontSize: 11.5),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Text(
+            'Per-stylist performance · confirmed bookings only',
+            style: TextStyle(color: emerald500, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "4.8" hours — one decimal, whole numbers without ".0".
+  static String _hours(num h) =>
+      h == h.roundToDouble() ? h.round().toString() : h.toStringAsFixed(1);
 }
 
 // ── Small pieces ─────────────────────────────────────────────────────────────
@@ -653,12 +837,14 @@ class EconomyScreenState extends State<EconomyScreen> {
 class _RangeBar extends StatelessWidget {
   final String from;
   final String to;
-  final VoidCallback onPick;
+  final VoidCallback onPickFrom;
+  final VoidCallback onPickTo;
   final void Function(String type) onExport;
   const _RangeBar({
     required this.from,
     required this.to,
-    required this.onPick,
+    required this.onPickFrom,
+    required this.onPickTo,
     required this.onExport,
   });
 
@@ -673,12 +859,62 @@ class _RangeBar extends StatelessWidget {
             const Icon(Icons.date_range, size: 16, color: gold400),
             const SizedBox(width: 8),
             Expanded(
-              child: InkWell(
-                onTap: onPick,
-                child: Text(
-                  '$from → $to',
-                  style: const TextStyle(color: cream, fontSize: 13),
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: onPickFrom,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('FROM',
+                                style: TextStyle(
+                                    color: emerald300.withValues(alpha: 0.7),
+                                    fontSize: 10,
+                                    letterSpacing: 1)),
+                            Text(fmtDateStrIndian(from),
+                                style: const TextStyle(
+                                    color: cream, fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2),
+                    child: Text('→',
+                        style: TextStyle(color: emerald300, fontSize: 13)),
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: onPickTo,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('TO',
+                                style: TextStyle(
+                                    color: emerald300.withValues(alpha: 0.7),
+                                    fontSize: 10,
+                                    letterSpacing: 1)),
+                            Text(fmtDateStrIndian(to),
+                                style: const TextStyle(
+                                    color: cream, fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             PopupMenuButton<String>(
@@ -728,6 +964,7 @@ class _TabBar extends StatelessWidget {
             ButtonSegment(value: i, label: Text(labels[i])),
         ],
         selected: {tab},
+        onSelectionChanged: (s) => onChanged(s.first),
         showSelectedIcon: false,
         style: ButtonStyle(
           side: WidgetStatePropertyAll(

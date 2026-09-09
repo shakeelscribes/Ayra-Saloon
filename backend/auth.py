@@ -63,6 +63,15 @@ def get_current_stylist_user(current_user: models.User = Depends(get_current_adm
     return current_user
 
 
+def get_current_owner(current_user: models.User = Depends(get_current_admin)):
+    """Owner-only access — admin account WITHOUT a stylist link. Salon-wide
+    money (expenses, budgets, exports, per-stylist stats) stays here; stylist
+    staff get their own scoped views (/economy/me/*) instead."""
+    if current_user.stylist_id:
+        raise HTTPException(status_code=403, detail="Owner access required")
+    return current_user
+
+
 async def can_act_on_booking(user: models.User, booking: models.Booking) -> bool:
     """Owner admins act on every booking; stylist staff act ONLY on bookings
     that involve their own chair (primary stylist or any slot row)."""

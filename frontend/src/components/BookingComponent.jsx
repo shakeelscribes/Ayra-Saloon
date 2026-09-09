@@ -178,10 +178,14 @@ const SORT_OPTIONS = [
 
 /* IST "today" (optionally offset by days). toISOString() is UTC — between
    00:00 and 05:30 IST it still yields yesterday, which would default the
-   date picker and the min clamp to the past. Shift to IST wall-clock first. */
+   date picker and the min clamp to the past. Shift the epoch forward by
+   exactly +5:30 and read it back as UTC — that is the IST wall-clock date,
+   independent of the device's own timezone. (Adding getTimezoneOffset()
+   here was wrong: on an IST-set device it cancels the +330 and the function
+   returned the UTC date — yesterday in the 00:00–05:30 IST window.) */
 const istDate = (days = 0) => {
   const now = new Date()
-  return new Date(now.getTime() + (330 + now.getTimezoneOffset() + days * 1440) * 60000)
+  return new Date(now.getTime() + (330 + days * 1440) * 60000)
     .toISOString().split('T')[0]
 }
 
@@ -191,6 +195,13 @@ const istNowMins = () => {
   const now = new Date()
   return (now.getUTCHours() * 60 + now.getUTCMinutes() + 330) % 1440
 }
+
+/* Bug 8: once the salon day is effectively over, the booking date floor flips
+   to tomorrow (owner-set threshold 20:45 IST) so users can't land on today's
+   dead grid. The Today chip hides and defaults/clamps move forward. */
+const DAY_FLIP_MINS = 20 * 60 + 45
+const dayFlipped = () => istNowMins() >= DAY_FLIP_MINS
+const minBookableDate = () => istDate(dayFlipped() ? 1 : 0)
 
 /* Human date labels for the date-first flow (off-day notices, time step). */
 const fmtDayMonth = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
@@ -519,16 +530,18 @@ export default function BookingComponent() {
 
   // Clamp stale drafts: a date/startTime restored from a previous session can
   // be in the past (or predate a catalog change). Past dates are unbookable.
+  // After the 20:45 IST day-flip, today itself is stale — floor moves to
+  // tomorrow so a draft saved earlier today can't restore a dead date.
   const [date, setDate] = useState(() => {
     const d = draft?.date
-    const today = istDate(0)
-    return d && d >= today ? d : istDate(1)
+    const floor = minBookableDate()
+    return d && d >= floor ? d : floor
   })
   const [startTime, setStartTime] = useState(() => {
     const d = draft?.startTime
     const savedDate = draft?.date
-    const today = istDate(0)
-    return d && (!savedDate || savedDate >= today) ? d : null
+    const floor = minBookableDate()
+    return d && (!savedDate || savedDate >= floor) ? d : null
   })
   const [availMap, setAvailMap] = useState({})    // stylistId -> busy intervals [{start, end}]
   const [loadingSlots, setLoadingSlots] = useState(false)
@@ -813,10 +826,18 @@ export default function BookingComponent() {
 
   /* 10-min booking cutoff: a slot is bookable until 10 minutes before it
      starts (the 10:00 slot closes at 09:50). Today only — future dates are
-     always open. Mirrors the backend guard in bookings.py. */
-  const isClosedStart = (t) => date === istDate(0) && toMins(t) - istNowMins() < 10
+     always open. The ONE exception: the day's last slot (20:00) stays
+     bookable until 20:15. Mirrors the backend guard in bookings.py. */
+  const LAST_SLOT = ALL_SLOTS[ALL_SLOTS.length - 1]
+  const isClosedStart = (t) => date === istDate(0) && (
+    t === LAST_SLOT
+      ? istNowMins() >= 20 * 60 + 15
+      : toMins(t) - istNowMins() < 10
+  )
   const closedStarts = date === istDate(0)
-    ? ALL_SLOTS.filter((t) => toMins(t) - istNowMins() < 10).length
+    ? ALL_SLOTS.filter((t) => (t === LAST_SLOT
+        ? istNowMins() >= 20 * 60 + 15
+        : toMins(t) - istNowMins() < 10)).length
     : 0
 
   /* A stale selection must never masquerade as valid: if the chosen start
@@ -1099,7 +1120,9 @@ export default function BookingComponent() {
                   <div className="max-w-lg mx-auto space-y-4">
                     <div className="flex flex-wrap justify-center gap-2">
                       {[
-                        { label: 'Today', value: istDate(0) },
+                        // Bug 8: after the 20:45 IST day-flip today's grid is
+                        // dead — hide the Today chip and leave Tomorrow only.
+                        ...(dayFlipped() ? [] : [{ label: 'Today', value: istDate(0) }]),
                         { label: 'Tomorrow', value: istDate(1) },
                       ].map(({ label, value }) => (
                         <button
@@ -1122,7 +1145,7 @@ export default function BookingComponent() {
                       <div className="flex justify-center">
                         <input
                           type="date"
-                          min={istDate(0)}
+                          min={minBookableDate()}
                           value={date}
                           onChange={(e) => { if (e.target.value) { setDate(e.target.value); setStartTime(null) } }}
                           className="luxury-input max-w-xs"
@@ -1287,7 +1310,7 @@ export default function BookingComponent() {
                               key={t}
                               type="button"
                               disabled={disabled}
-                              title={taken ? 'Already booked' : closed ? 'Booking closed — starts in under 10 minutes' : !fits ? 'Not enough time before closing' : undefined}
+                              title={taken ? 'Already booked' : closed ? (t === LAST_SLOT ? 'Booking closed at 8:15 PM' : 'Booking closed — starts in under 10 minutes') : !fits ? 'Not enough time before closing' : undefined}
                               onPointerDown={() => !disabled && tap(4)}
                               onClick={() => { if (!disabled) { tap(8); setStartTime(t) } }}
                               className={`tap-target py-2.5 rounded-xl text-sm font-medium transition-colors duration-200 ${
@@ -1317,7 +1340,7 @@ export default function BookingComponent() {
                     )}
                     {closedStarts > 0 && (
                       <p className="mt-1 text-emerald-400/60 text-xs">
-                        Faded times have closed — booking ends 10 minutes before a slot starts.
+                        Faded times have closed — booking ends 10 minutes before a slot starts. The 8:00 PM slot stays open till 8:15 PM.
                       </p>
                     )}
                     {startTime && resolution?.blockedAt !== null && (

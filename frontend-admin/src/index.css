@@ -110,4 +110,92 @@
     @apply w-full bg-emerald-900 border border-emerald-700 text-cream px-4 py-3 rounded-xl
            focus:outline-none focus:border-gold-500 transition-colors duration-200 placeholder-emerald-600;
   }
+
+  /* ── Login segmented door toggle ("Switchboard") ──────────────────────────
+     One form, one toggle; accent/copy swap with the door. The highlight pill
+     slides via transform; the form's top accent bar is persistent and only
+     crossfades background-color so it never remounts mid-swap. */
+  .login-seg {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(13, 31, 23, 0.7);
+    border: 1px solid rgba(201, 168, 76, 0.2);
+  }
+  .login-seg-highlight {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: calc(50% - 4px);
+    height: calc(100% - 8px);
+    border-radius: 999px;
+    background: rgba(201, 168, 76, 0.12);
+    border: 1px solid rgba(201, 168, 76, 0.4);
+    transition:
+      transform 250ms cubic-bezier(0.23, 1, 0.32, 1),
+      border-color 200ms ease-out;
+    will-change: transform;
+  }
+  .login-seg-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 42px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    font: inherit;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: rgba(250, 246, 238, 0.5);
+    cursor: pointer;
+    transition:
+      color 150ms ease-out,
+      transform 160ms ease-out;
+  }
+  .login-seg-item:hover {
+    color: rgba(250, 246, 238, 0.8);
+  }
+  .login-seg-item:active {
+    transform: scale(0.97);
+  }
+  .login-seg-item:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .login-seg-item[data-active] {
+    color: #faf6ee;
+  }
+
+  /* Persistent role accent bar — crossfades color, never remounts */
+  .login-accent-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    transition: background-color 220ms ease-out;
+  }
+
+  /* Door-swap reveal for copy that changes with the selected door */
+  @media (prefers-reduced-motion: no-preference) {
+    .login-swap {
+      animation: login-swap-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes login-swap-in {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+    }
+  }
+
+  /* Validation state for .luxury-input */
+  .luxury-input.input-error {
+    border-color: #f87171 !important;
+  }
 }

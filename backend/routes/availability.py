@@ -27,6 +27,23 @@ GRACE_MINS = 30
 # bookings.py and mirrored by every client-side slot grid.
 BOOKING_CUTOFF_MINS = 10
 
+# The ONE exception: the day's last slot (20:00) stays bookable until 20:15
+# IST — 15 minutes past its start — so the salon can still seat a late
+# arrival in the final hour. Mirrored by every client-side slot grid.
+LAST_SLOT_CLOSE_MINS = 20 * 60 + 15  # 20:15 IST
+
+
+def slot_closed_for_today(time_slot: str, now_min: int) -> bool:
+    """True when `time_slot`'s booking window has shut for today.
+
+    `now_min` is minutes-since-midnight IST. Every slot closes
+    BOOKING_CUTOFF_MINS before its start; the last slot (20:00) instead
+    stays open until LAST_SLOT_CLOSE_MINS (20:15).
+    """
+    if time_slot == ALL_SLOTS[-1]:
+        return now_min >= LAST_SLOT_CLOSE_MINS
+    return hm_to_mins(time_slot) - now_min < BOOKING_CUTOFF_MINS
+
 
 def hm_to_mins(hm: str) -> int:
     h, m = hm.split(":")

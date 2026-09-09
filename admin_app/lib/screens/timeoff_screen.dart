@@ -129,21 +129,39 @@ class TimeOffScreenState extends State<TimeOffScreen> {
 
   Future<void> _pick({required bool isStart}) async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: (isStart ? _start : (_end ?? _start)) ?? now,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: now.add(const Duration(days: 365)),
-    );
-    if (picked == null) return;
-    setState(() {
-      if (isStart) {
+    final today = DateTime(now.year, now.month, now.day);
+    if (isStart) {
+      final picked = await pickAyraDate(
+        context,
+        initialDate: _start ?? today,
+        firstDate: today,
+        lastDate: now.add(const Duration(days: 365)),
+        helpText: 'FROM date',
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
         _start = picked;
+        // A start past the old end invalidates the end — clear it.
         if (_end != null && _end!.isBefore(_start!)) _end = null;
-      } else {
-        _end = picked;
-      }
-    });
+      });
+      // Chain straight into the To picker so both ends are set in one go —
+      // the "I picked a start but the range feels unfinished" fix.
+      if (_end == null && mounted) await _pick(isStart: false);
+    } else {
+      // End can never precede the (already picked) start.
+      final floor = _start ?? today;
+      var initial = _end ?? floor;
+      if (initial.isBefore(floor)) initial = floor;
+      final picked = await pickAyraDate(
+        context,
+        initialDate: initial,
+        firstDate: floor,
+        lastDate: now.add(const Duration(days: 365)),
+        helpText: 'TO date',
+      );
+      if (picked == null || !mounted) return;
+      setState(() => _end = picked);
+    }
   }
 
   Future<void> _submit() async {
@@ -208,7 +226,7 @@ class TimeOffScreenState extends State<TimeOffScreen> {
         backgroundColor: emerald900,
         title: const Text('Remove time off?', style: TextStyle(color: cream)),
         content: Text(
-          '${r.start} to ${r.end} — you become bookable again immediately.',
+          '${fmtDateStrIndian(r.start)} to ${fmtDateStrIndian(r.end)} — you become bookable again immediately.',
           style: const TextStyle(color: emerald300),
         ),
         actions: [
@@ -250,7 +268,9 @@ class TimeOffScreenState extends State<TimeOffScreen> {
       await Api.instance.cancel(c.bookingId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Booking on ${c.date} cancelled')),
+        SnackBar(
+            content:
+                Text('Booking on ${fmtDateStrIndian(c.date)} cancelled')),
       );
       setState(() {
         _conflicts = _conflicts.where((x) => x.bookingId != c.bookingId).toList();
@@ -346,7 +366,7 @@ class TimeOffScreenState extends State<TimeOffScreen> {
                               ),
                             ),
                             Text(
-                              '${r.start} → ${r.end}',
+                              '${fmtDateStrIndian(r.start)} → ${fmtDateStrIndian(r.end)}',
                               style: const TextStyle(
                                   color: emerald300, fontSize: 12),
                             ),
@@ -392,7 +412,9 @@ class TimeOffScreenState extends State<TimeOffScreen> {
                   children: [
                     Expanded(
                       child: _DateField(
-                        label: _start == null ? 'From' : _fmt(_start!),
+                        label: _start == null
+                            ? 'From'
+                            : fmtDateIndian(_start!),
                         onTap: () => _pick(isStart: true),
                       ),
                     ),
@@ -403,7 +425,7 @@ class TimeOffScreenState extends State<TimeOffScreen> {
                     ),
                     Expanded(
                       child: _DateField(
-                        label: _end == null ? 'To' : _fmt(_end!),
+                        label: _end == null ? 'To' : fmtDateIndian(_end!),
                         onTap: () => _pick(isStart: false),
                       ),
                     ),
@@ -464,7 +486,7 @@ class TimeOffScreenState extends State<TimeOffScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                '${c.date}'
+                                '${fmtDateStrIndian(c.date)}'
                                 '${c.timeSlot != null && c.timeSlot!.isNotEmpty ? ' at ${fmtTime(c.timeSlot)}' : ''}'
                                 ' · ${c.status} · ${c.source == 'walk_in' ? 'walk-in' : 'online'}',
                                 style: const TextStyle(
@@ -530,7 +552,7 @@ class TimeOffScreenState extends State<TimeOffScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${r.start} → ${r.end}',
+                              '${fmtDateStrIndian(r.start)} → ${fmtDateStrIndian(r.end)}',
                               style: const TextStyle(
                                 color: cream,
                                 fontSize: 13.5,

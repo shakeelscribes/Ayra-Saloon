@@ -1,4 +1,4 @@
-package com.ayrasaloon.admin_app
+package com.ayrasaloon.dashboard
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -4,8 +4,8 @@
 /// - On 401, clears the session and reports it so the shell can show Login
 library;
 
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -97,6 +97,15 @@ class Api {
       _send('POST', '/bookings/$id/propose-reschedule',
           body: {'date': date, 'time_slot': timeSlot, 'reason': reason});
 
+  // ── Customer lookup ─────────────────────────────────────────────────────────
+  /// Find a customer by phone for the walk-in form's autofill. Read-only —
+  /// the form fills from the snapshot; the account itself is never touched.
+  /// found=false for unknown numbers and staff accounts.
+  Future<CustomerLookup> lookupCustomer(String phone) async {
+    final data = await _send('GET', '/users/lookup?phone=${Uri.encodeComponent(phone)}');
+    return CustomerLookup.fromJson(data as Map<String, dynamic>);
+  }
+
   // ── Availability ────────────────────────────────────────────────────────────
   /// When [result.stylistOff] is true the stylist marked the date off — the
   /// busy list is empty but the whole day is blocked. Mirrors the web panel's
@@ -177,6 +186,18 @@ class Api {
     return EconomySummaryModel.fromJson(data);
   }
 
+  /// The signed-in stylist's OWN earnings (owner gets 403 — no stylist link).
+  Future<StylistMeSummaryModel> meSummary() async {
+    final data = await _send('GET', '/economy/me/summary');
+    return StylistMeSummaryModel.fromJson(data);
+  }
+
+  /// Owner-only per-stylist performance for the By Stylist tab.
+  Future<ByStylistResponseModel> byStylist(String from, String to) async {
+    final data = await _send('GET', '/economy/by-stylist?from=$from&to=$to');
+    return ByStylistResponseModel.fromJson(data);
+  }
+
   Future<List<ExpenseModel>> expenses(String from, String to) async {
     final data = await _send('GET', '/economy/expenses?from=$from&to=$to') as List<dynamic>;
     return data.map((e) => ExpenseModel.fromJson(e)).toList();
@@ -236,6 +257,20 @@ class Api {
       await _send('GET', '/notifications/all?limit=$limit') as List<dynamic>;
 
   Future<void> markSent(String id) => _send('POST', '/notifications/$id/mark-sent');
+
+  // ── Device tokens (FCM alert registration — stylist only) ──────────────────
+  Future<void> registerDeviceToken(String token, {String platform = 'android'}) =>
+      _send('POST', '/devices/token', body: {'token': token, 'platform': platform});
+
+  Future<void> unregisterDeviceToken(String token) =>
+      _send('DELETE', '/devices/token?token=${Uri.encodeComponent(token)}');
+
+  // ── Pending count (alert polling fallback) ──────────────────────────────────
+  /// `{count, latest_id}` for the signed-in stylist's pending bookings.
+  Future<Map<String, dynamic>> pendingCount() async {
+    final data = await _send('GET', '/bookings/pending-count');
+    return data as Map<String, dynamic>;
+  }
 
   // ── Transport ───────────────────────────────────────────────────────────────
   Future<dynamic> _send(String method, String path, {Map<String, dynamic>? body, bool auth = true}) async {

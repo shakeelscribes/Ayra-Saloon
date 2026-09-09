@@ -3,14 +3,31 @@ from typing import Optional
 from jose import JWTError, jwt
 import bcrypt
 import os
+import secrets
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import models
 
-# Secret comes from the environment (.env / hosting config). The fallback
-# keeps local dev working without setup; production MUST set SECRET_KEY.
-# Rotating the secret invalidates all existing tokens (users re-login).
-SECRET_KEY = os.getenv("SECRET_KEY", "ayra-saloon-super-secret-key-2024")
+# .env may not be loaded yet depending on import order — load it here too
+# (load_dotenv never overrides variables that are already set).
+load_dotenv()
+
+# JWT signing secret. There is NO hardcoded fallback: a secret that ships in
+# public source code lets anyone forge admin tokens. If SECRET_KEY is unset
+# we fail SAFE with an ephemeral random key — tokens stay unforgable, and the
+# cost (all sessions reset on every restart) makes the misconfiguration
+# visible instead of silent. Production MUST set SECRET_KEY; rotating it
+# invalidates all existing tokens (users re-login).
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    print("=" * 64, flush=True)
+    print("WARNING: SECRET_KEY is not set — using an EPHEMERAL random secret.")
+    print("Every server restart will log everyone out.")
+    print("Set SECRET_KEY in .env / hosting config (see .env.example):")
+    print('  python -c "import secrets; print(secrets.token_hex(32))"')
+    print("=" * 64, flush=True)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 

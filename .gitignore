@@ -107,3 +107,12 @@ skills-lock.json
 backend/_backup/dump/
 # Vite dev-server cache
 .vite/
+
+# =========================
+# Firebase credentials (secrets — never commit)
+# =========================
+backend/firebase-service-account.json
+*firebase-adminsdk*.json
+
+# Local tooling binary (never commit)
+opencode.exe

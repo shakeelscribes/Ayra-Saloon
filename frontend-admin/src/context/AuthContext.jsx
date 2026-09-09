@@ -41,8 +41,15 @@ export function AuthProvider({ children }) {
     })
   }, [])
 
+  // role: 'owner' | 'stylist' — both are full admins; stylists are scoped to
+  // their own chair server-side (bookings, notifications, time-off). The
+  // owner has no stylist link. Derived (not trusted from storage) so stale
+  // localStorage users without the role field still resolve correctly.
+  const role = user?.role || (user?.is_admin ? 'owner' : 'customer')
+  const stylistId = user?.stylist_id || null
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, updateUser, isAdmin: user?.is_admin }}>
+    <AuthContext.Provider value={{ user, login, logout, updateUser, isAdmin: user?.is_admin, role, stylistId }}>
       {children}
     </AuthContext.Provider>
   )

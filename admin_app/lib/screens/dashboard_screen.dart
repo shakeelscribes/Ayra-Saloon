@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart';
 import '../models.dart' as m;
+import '../services/notification_service.dart';
 import '../slots.dart';
 import '../theme.dart';
 import 'home_shell.dart';
@@ -23,13 +24,38 @@ class DashboardScreenState extends State<DashboardScreen> {
   List<m.BookingModel> _awaiting = [];
   bool _loading = true;
   String? _error;
-  String? _selectedDate; // null = all dates
+  String? _selectedDate; // IST yyyy-MM-dd — defaults to today; null = all dates
   String? _actingId; // booking currently being mutated (spinner on its buttons)
+  m.StylistsAvailable? _roster; // off-day roster for the banner date
+  // Upcoming approved time-off ranges — all staff (GET /stylists/time-off/
+  // upcoming returns every range from today on) — Bug 1 parity with web.
+  List<m.TimeOffModel> _upcomingOff = [];
+  Map<String, String> _stylistNames = {};
+  // The stylist's OWN earnings (owner stays null — they see salon stats).
+  m.StylistMeSummaryModel? _meSummary;
 
   @override
   void initState() {
     super.initState();
+    // The dashboard opens on TODAY — the owner/stylist cares about the
+    // current day first; the full datewise list lives on the Schedule tab.
+    _selectedDate = istToday();
     refresh();
+  }
+
+  /// Stylists act only on their own chair — a booking is theirs when one of
+  /// its slot rows (or the legacy single-stylist field) names them. The
+  /// backend already scopes adminBookings; this is a defensive client filter.
+  bool _ownChair(m.BookingModel b) {
+    final me = Api.instance.user;
+    if (me == null || !me.isStylist || me.stylistId == null) return true;
+    final sid = me.stylistId!;
+    final ids = b.slots
+        .map((sl) => sl.stylist?.id ?? '')
+        .where((s) => s.isNotEmpty)
+        .toSet();
+    if (ids.isNotEmpty) return ids.contains(sid);
+    return b.stylist?.id == sid;
   }
 
   Future<void> refresh() async {
@@ -37,15 +63,24 @@ class DashboardScreenState extends State<DashboardScreen> {
       _loading = _bookings.isEmpty;
       _error = null;
     });
+    _loadRoster();
+    _loadMeSummary();
+    _loadUpcomingOff();
     try {
       final results = await Future.wait([
         Api.instance.adminBookings(date: _selectedDate),
         Api.instance.adminBookings(),
       ]);
-      final all = results[1].map((e) => m.BookingModel.fromJson(e)).toList();
+      final all = results[1]
+          .map((e) => m.BookingModel.fromJson(e))
+          .where(_ownChair)
+          .toList();
       if (!mounted) return;
       setState(() {
-        _bookings = results[0].map((e) => m.BookingModel.fromJson(e)).toList();
+        _bookings = results[0]
+            .map((e) => m.BookingModel.fromJson(e))
+            .where(_ownChair)
+            .toList();
         _pending = all.where((b) => b.status == 'pending').toList();
         _awaiting = all
             .where((b) => b.status == 'awaiting_reschedule')
@@ -58,6 +93,61 @@ class DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _error = e.message;
         _loading = false;
+      });
+    }
+  }
+
+  /// Off-day banner data — /stylists/available for the visible day (the
+  /// selected filter date, else IST today). Fail-open: on error the banner
+  /// just hides; the dashboard must not depend on it.
+  Future<void> _loadRoster() async {
+    try {
+      final roster =
+          await Api.instance.stylistsAvailable(_selectedDate ?? istToday());
+      if (!mounted) return;
+      setState(() => _roster = roster);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _roster = null);
+    }
+  }
+
+  /// The stylist's own earnings strip (GET /economy/me/summary). Only called
+  /// for stylists; the owner never sees the strip. Fail-open: on error the
+  /// strip stays on its last values or hides.
+  Future<void> _loadMeSummary() async {
+    final me = Api.instance.user;
+    if (me == null || !me.isStylist) return;
+    try {
+      final s = await Api.instance.meSummary();
+      if (!mounted) return;
+      setState(() => _meSummary = s);
+    } on ApiException {
+      if (!mounted) return;
+      // Leave whatever we had; a transient failure shouldn't blank the strip.
+    }
+  }
+
+  /// Upcoming approved time-off ranges — Bug 1 parity with the web panel.
+  /// Names resolved via the public /stylists list (the time-off rows carry
+  /// only stylist_id). Fail-open like the roster.
+  Future<void> _loadUpcomingOff() async {
+    try {
+      final rows = await Api.instance.upcomingTimeOff();
+      final stylists = await Api.instance.stylists();
+      if (!mounted) return;
+      setState(() {
+        _upcomingOff = rows;
+        _stylistNames = {
+          for (final s in stylists)
+            s['id'].toString(): (s['name'] as String?) ?? 'Stylist',
+        };
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() {
+        _upcomingOff = [];
+        _stylistNames = {};
       });
     }
   }
@@ -89,17 +179,15 @@ class DashboardScreenState extends State<DashboardScreen> {
     final initial = _selectedDate != null
         ? DateTime.tryParse(_selectedDate!)
         : DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
+    final picked = await pickAyraDate(
+      context,
       initialDate: initial ?? DateTime.now(),
       firstDate: DateTime(2024),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      helpText: 'Filter bookings by date',
     );
     if (picked == null) return;
-    setState(
-      () => _selectedDate =
-          '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}',
-    );
+    setState(() => _selectedDate = isoDate(picked));
     refresh();
   }
 
@@ -142,27 +230,47 @@ class DashboardScreenState extends State<DashboardScreen> {
           Reveal(
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Eyebrow('Admin Panel'),
-                      SizedBox(height: 6),
+                      Eyebrow(
+                        Api.instance.user?.isStylist == true
+                            ? 'Your Chair · ${Api.instance.user?.name ?? ''}'
+                            : 'Admin Panel',
+                        color: Api.instance.user?.isStylist == true
+                            ? emerald300
+                            : null,
+                      ),
+                      const SizedBox(height: 6),
                       Text(
-                        'Daily Dashboard',
-                        style: TextStyle(
+                        Api.instance.user?.isStylist == true
+                            ? 'My Dashboard'
+                            : 'Daily Dashboard',
+                        style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.w600,
                           color: cream,
                         ),
                       ),
-                      GoldRule(),
+                      const GoldRule(),
+                      if (Api.instance.user?.isStylist == true) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Everything here is your own schedule and your own earnings.',
+                          style: const TextStyle(
+                              color: emerald300, fontSize: 12),
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 IconButton(
                   tooltip: 'Sign out',
                   onPressed: () async {
+                    // Unregister the device token while the JWT still works,
+                    // and kill any active alarm before tearing down state.
+                    await NotificationService.instance.onSignedOut();
                     await Api.instance.logout();
                     if (!context.mounted) return;
                     widget.shell.handleAuthError();
@@ -174,56 +282,207 @@ class DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 20),
 
-          // ── Stats ───────────────────────────────────────────────────────────
-          Reveal(
-            delay: const Duration(milliseconds: 40),
-            child: GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.15,
-              children: [
-                _StatCard(
-                  icon: Icons.trending_up,
-                  label: 'Total',
-                  value: '${_bookings.length + _pending.length}',
-                  color: emerald800,
+          // ── Off-day banner (who is marked off for the visible day) ─────────
+          if ((_roster != null && _roster!.off.isNotEmpty) ||
+              _upcomingOff.isNotEmpty) ...[
+            Reveal(
+              delay: const Duration(milliseconds: 20),
+              child: GlassCard(
+                border: amber400.withValues(alpha: 0.45),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_roster != null && _roster!.off.isNotEmpty)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.event_busy,
+                              size: 18, color: amber400),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Off ${fmtDateStrIndian(_roster!.date)}: '
+                              '${_roster!.off.map((s) => s.stylist.name).join(', ')}'
+                              ' — their exclusive services are hidden from online booking.',
+                              style: const TextStyle(
+                                  color: amber400, fontSize: 12.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    // Bug 1: upcoming approved time-off, all staff (owner) or
+                    // self (stylist) — mirrors the web dashboard banner.
+                    if (_upcomingOff.isNotEmpty) ...[
+                      if (_roster != null && _roster!.off.isNotEmpty)
+                        const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.upcoming,
+                              size: 18, color: amber400),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Upcoming off: '
+                              '${_upcomingOff.map((r) => '${_stylistNames[r.stylistId] ?? "Stylist"} (${fmtDateStrIndian(r.start)} → ${fmtDateStrIndian(r.end)})').join(', ')}',
+                              style: const TextStyle(
+                                  color: amber400, fontSize: 12.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
-                _StatCard(
-                  icon: Icons.error_outline,
-                  label: 'Pending',
-                  value: '${_pending.length}',
-                  color: const Color(0xFFb45309),
-                ),
-                _StatCard(
-                  icon: Icons.schedule,
-                  label: 'Reschedule',
-                  value: '${_awaiting.length}',
-                  color: const Color(0xFF4c1d95),
-                ),
-                _StatCard(
-                  icon: Icons.check_circle_outline,
-                  label: 'Confirmed',
-                  value: '${confirmed.length}',
-                  color: emerald700,
-                ),
-                _StatCard(
-                  icon: Icons.cancel_outlined,
-                  label: 'Cancelled',
-                  value: '${cancelled.length}',
-                  color: const Color(0xFF7f1d1d),
-                ),
-                _StatCard(
-                  icon: Icons.currency_rupee,
-                  label: 'Revenue',
-                  value: inr(revenue),
-                  color: gold600,
-                ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 16),
+          ],
+
+          // ── Stats ───────────────────────────────────────────────────────────
+          // Stylists: their own earnings (never salon-wide money). Owner: the
+          // salon-wide booking funnel.
+          if (Api.instance.user?.isStylist == true) ...[
+            Reveal(
+              delay: const Duration(milliseconds: 40),
+              child: GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.9,
+                children: [
+                  _StatCard(
+                    icon: Icons.currency_rupee,
+                    label: 'Earned today',
+                    value: _meSummary == null
+                        ? '…'
+                        : inr(_meSummary!.todayRevenue),
+                    color: gold600,
+                  ),
+                  _StatCard(
+                    icon: Icons.event_available,
+                    label: 'Bookings today',
+                    value: _meSummary == null
+                        ? '…'
+                        : '${_meSummary!.todayBookings}',
+                    color: emerald700,
+                  ),
+                  _StatCard(
+                    icon: Icons.calendar_month,
+                    label: 'Earned this month',
+                    value: _meSummary == null
+                        ? '…'
+                        : inr(_meSummary!.monthRevenue),
+                    color: gold600,
+                  ),
+                  _StatCard(
+                    icon: Icons.event_note,
+                    label: 'Bookings this month',
+                    value: _meSummary == null
+                        ? '…'
+                        : '${_meSummary!.monthBookings}',
+                    color: emerald700,
+                  ),
+                ],
+              ),
+            ),
+            // Next-up hint — the stylist's earliest upcoming confirmed booking.
+            if (_meSummary?.nextAppointment != null)
+              Reveal(
+                delay: const Duration(milliseconds: 60),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: GlassCard(
+                    border: emerald300.withValues(alpha: 0.35),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.upcoming,
+                            size: 18, color: emerald300),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Next up · '
+                                '${_meSummary!.nextAppointment!.date}'
+                                '${_meSummary!.nextAppointment!.timeSlot != null ? ' ${fmtTime(_meSummary!.nextAppointment!.timeSlot)}' : ''}'
+                                ' · ${_meSummary!.nextAppointment!.customerName ?? 'Customer'}',
+                                style: const TextStyle(
+                                    color: cream, fontSize: 12.5),
+                              ),
+                              if (_meSummary!
+                                  .nextAppointment!.services.isNotEmpty)
+                                const SizedBox(height: 2),
+                              if (_meSummary!
+                                  .nextAppointment!.services.isNotEmpty)
+                                Text(
+                                  _meSummary!.nextAppointment!.services
+                                      .join(' · '),
+                                  style: const TextStyle(
+                                      color: emerald300, fontSize: 11.5),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ] else
+            Reveal(
+              delay: const Duration(milliseconds: 40),
+              child: GridView.count(
+                crossAxisCount: 3,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.15,
+                children: [
+                  _StatCard(
+                    icon: Icons.trending_up,
+                    label: 'Total',
+                    value: '${_bookings.length + _pending.length}',
+                    color: emerald800,
+                  ),
+                  _StatCard(
+                    icon: Icons.error_outline,
+                    label: 'Pending',
+                    value: '${_pending.length}',
+                    color: const Color(0xFFb45309),
+                  ),
+                  _StatCard(
+                    icon: Icons.schedule,
+                    label: 'Reschedule',
+                    value: '${_awaiting.length}',
+                    color: const Color(0xFF4c1d95),
+                  ),
+                  _StatCard(
+                    icon: Icons.check_circle_outline,
+                    label: 'Confirmed',
+                    value: '${confirmed.length}',
+                    color: emerald700,
+                  ),
+                  _StatCard(
+                    icon: Icons.cancel_outlined,
+                    label: 'Cancelled',
+                    value: '${cancelled.length}',
+                    color: const Color(0xFF7f1d1d),
+                  ),
+                  _StatCard(
+                    icon: Icons.currency_rupee,
+                    label: 'Revenue',
+                    value: inr(revenue),
+                    color: gold600,
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 20),
 
           // ── Date filter ─────────────────────────────────────────────────────
@@ -237,7 +496,9 @@ class DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _selectedDate == null ? 'All dates' : _selectedDate!,
+                      _selectedDate == null
+                          ? 'All dates'
+                          : fmtDateStrIndian(_selectedDate),
                       style: const TextStyle(color: cream, fontSize: 13),
                     ),
                   ),
@@ -445,8 +706,9 @@ class DashboardScreenState extends State<DashboardScreen> {
                 : <m.SlotModel>[]);
       for (final sl in rows) {
         final name = sl.stylist?.name;
-        if (name != null && name.isNotEmpty)
+        if (name != null && name.isNotEmpty) {
           acc[name] = (acc[name] ?? 0) + sl.durationMins;
+        }
       }
     }
     return acc;
@@ -905,7 +1167,7 @@ class _LoadBar extends StatelessWidget {
                 tween: Tween(begin: 0, end: pct),
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.easeOutCubic,
-                builder: (_, v, __) => LinearProgressIndicator(
+                builder: (_, v, _) => LinearProgressIndicator(
                   value: v,
                   minHeight: 6,
                   backgroundColor: emerald900,
@@ -934,7 +1196,7 @@ class _RescheduleSheet extends StatefulWidget {
 class _RescheduleSheetState extends State<_RescheduleSheet> {
   late DateTime _date;
   String? _start;
-  Map<String, List<m.BusyInterval>> _avail = {};
+  Map<String, m.AvailabilityResult> _avail = {};
   bool _loading = true;
   bool _loadFailed = false;
   final _reason = TextEditingController();
@@ -952,7 +1214,12 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
   @override
   void initState() {
     super.initState();
-    _date = DateTime.tryParse(widget.booking.date) ?? DateTime.now();
+    // Bug 8: rescheduling a booking dated today after the 20:45 IST flip is
+    // impossible (every slot closed) — seed the proposal at tomorrow instead.
+    final parsed = DateTime.tryParse(widget.booking.date);
+    _date = istDayFlipped() && isoDate(parsed ?? DateTime.now()) == istToday()
+        ? (DateTime.tryParse(istTomorrow()) ?? DateTime.now())
+        : (parsed ?? DateTime.now());
     _loadAvailability();
   }
 
@@ -998,10 +1265,11 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
   }
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
+    final picked = await pickAyraDate(
+      context,
       initialDate: _date,
-      firstDate: DateTime.now(),
+      // Bug 8: today drops out of the picker once the day flips (20:45 IST).
+      firstDate: DateTime.tryParse(minBookableDate()) ?? DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked == null || picked == _date) return;
@@ -1034,25 +1302,52 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // A stylist marked off on this date blocks their whole day — same
+    // full-day block the backend's availability math implies.
+    List<m.BusyInterval> busyFor(String id) {
+      final r = _avail[id];
+      if (r == null) return const [];
+      if (r.stylistOff) {
+        return [m.BusyInterval(start: '10:00', end: '21:00')];
+      }
+      return r.busy;
+    }
+
     final viable = _loading || _loadFailed || _rows.isEmpty
         ? <String>{}
-        : viableStartsFor((id) => _avail[id] ?? [], _rows);
+        : viableStartsFor(busyFor, _rows);
     final availLoaded =
         !_loading &&
         !_loadFailed &&
         _stylistIds.isNotEmpty &&
         _stylistIds.every((id) => _avail.containsKey(id));
+    // Names of involved stylists who are off — shown instead of the generic
+    // "no slots" message so the reason is obvious.
+    final offNames = !availLoaded
+        ? <String>[]
+        : () {
+            final idName = {
+              for (final r in _rows)
+                if (r.stylist != null) r.stylist!.id: r.stylist!.name,
+            };
+            return [
+              for (final id in _stylistIds)
+                if (_avail[id]?.stylistOff ?? false) idName[id] ?? id,
+            ];
+          }();
     final block = slotsNeededFor(_rows.map((r) => r.durationMins).toList());
 
     // 10-min booking cutoff for today — mirrors the backend reschedule guard
     // (bookings.py). Reschedule is strictly future-facing: no walk-in
-    // override here (started-slot seating belongs to New Appointment).
+    // override here (started-slot seating belongs to New Appointment). The
+    // ONE exception: the last slot (20:00) stays open until 20:15.
     final isToday = _dateStr == istToday();
     final nowIst = DateTime.now().toUtc().add(
       const Duration(hours: 5, minutes: 30),
     );
     final nowMin = nowIst.hour * 60 + nowIst.minute;
-    bool closedByCutoff(String t) => isToday && toMins(t) - nowMin < 10;
+    bool closedByCutoff(String t) => isToday &&
+        (t == '20:00' ? nowMin >= 20 * 60 + 15 : toMins(t) - nowMin < 10);
 
     return SafeArea(
       child: Padding(
@@ -1152,6 +1447,12 @@ class _RescheduleSheetState extends State<_RescheduleSheet> {
                 const Text(
                   'Could not load availability for this date.',
                   style: TextStyle(color: amber400, fontSize: 11.5),
+                )
+              else if (offNames.isNotEmpty)
+                Text(
+                  '${offNames.join(', ')} '
+                  '${offNames.length == 1 ? 'is' : 'are'} marked off on $_dateStr — no availability that day.',
+                  style: const TextStyle(color: amber400, fontSize: 11.5),
                 )
               else if (viable.isEmpty)
                 const Text(

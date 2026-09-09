@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Scissors, User, Phone, Mail, Plus, Trash2, CheckCircle2, Calendar, Search, Clock, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Scissors, User, Phone, Mail, Plus, Trash2, CheckCircle2, Calendar, CalendarOff, Search, Clock, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 /* Salon day grid — mirrors backend/routes/availability.py ALL_SLOTS. */
 const ALL_SLOTS = Array.from({ length: 11 }, (_, i) => `${10 + i}:00`)
@@ -18,6 +19,19 @@ const istNowMins = () => {
   const now = new Date()
   const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000)
   return ist.getHours() * 60 + ist.getMinutes()
+}
+
+/* Bug 8: past the 20:45 IST day-flip the salon day is over — booking defaults
+   and the date floor advance to tomorrow (mirrors the user panel). */
+const DAY_FLIP_MINS = 20 * 60 + 45
+const dayFlipped = () => istNowMins() >= DAY_FLIP_MINS
+const minBookableDate = () => (dayFlipped() ? istTomorrow() : istToday())
+
+/* IST "tomorrow" — same UTC-shift trick as istToday. */
+const istTomorrow = () => {
+  const now = new Date()
+  return new Date(now.getTime() + (330 + now.getTimezoneOffset() + 1440) * 60000)
+    .toISOString().split('T')[0]
 }
 
 const fmtTime = (t) => {
@@ -208,16 +222,31 @@ function Dropdown({ value, onChange, groups, placeholder, disabled, ariaLabel, c
 
 export default function NewAppointment() {
   const navigate = useNavigate()
+  // Stylist accounts can only book their own chair (server enforces the same
+  // rule on /bookings/admin/create); the owner books anyone.
+  const { role, user, stylistId } = useAuth()
 
   // Customer
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   // Optional — only used for the calendar invite email (never required)
   const [email, setEmail] = useState('')
+  // Known-customer lookup — when the typed number matches an existing
+  // account, the name/email fields auto-fill (only if empty) and a chip
+  // confirms the match. Read-only: the account itself is never updated.
+  const [matchedCustomer, setMatchedCustomer] = useState(null)
 
   // Catalog
   const [services, setServices] = useState([])
   const [stylists, setStylists] = useState([])
+
+  // Off-day awareness for the chosen date — mirrors the customer wizard:
+  // /stylists/available splits working vs off for ONE date. Services whose
+  // only specialists are off get hidden, off stylists leave the picker, and
+  // items pointing at them are pruned when the date changes.
+  const [availableForDate, setAvailableForDate] = useState(null)
+  const [workingStylists, setWorkingStylists] = useState([])
+  const [offStylists, setOffStylists] = useState([])
 
   // Selected items: [{ service_id, stylist_id }] with resolved objects for UI
   const [items, setItems] = useState([])
@@ -235,8 +264,8 @@ export default function NewAppointment() {
   const [svcCategory, setSvcCategory] = useState('all')
   const [svcSort, setSvcSort] = useState('recommended')
 
-  // Schedule
-  const [date, setDate] = useState(istToday())
+  // Schedule — defaults to tomorrow once the day has flipped (Bug 8).
+  const [date, setDate] = useState(minBookableDate())
   const [start, setStart] = useState(null)
   const [avail, setAvail] = useState({})
   const [availLoading, setAvailLoading] = useState(false)
@@ -258,26 +287,116 @@ export default function NewAppointment() {
     })
   }, [])
 
+  // Known-customer lookup — debounced so typing a full number fires ONE
+  // call. Fires at ≥10 digits (backend matches the trailing 10 anyway);
+  // pre-filled fields are never clobbered (fill-if-empty policy), and the
+  // chip clears as soon as the number changes again.
+  useEffect(() => {
+    if (phone.replace(/\D/g, '').length < 10) {
+      setMatchedCustomer(null)
+      return
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      client.get(`/users/lookup?phone=${encodeURIComponent(phone)}`, { signal: controller.signal })
+        .then(r => {
+          const c = r.data?.found ? r.data : null
+          setMatchedCustomer(c)
+          if (c) {
+            setName(n => n.trim() || c.name || '')
+            setEmail(e => e.trim() || c.email || '')
+          }
+        })
+        .catch(() => { /* network blip — chip stays off, form stays manual */ })
+    }, 500)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [phone])
+
+  // Working vs off stylists for the chosen date. Fail-open: on error keep
+  // the full roster so a network blip never empties the menu.
+  useEffect(() => {
+    if (!date) return
+    const controller = new AbortController()
+    client.get(`/stylists/available?date=${date}`, { signal: controller.signal })
+      .then(r => {
+        if (controller.signal.aborted) return
+        setWorkingStylists((r.data.working || []).map(e => e.stylist))
+        setOffStylists((r.data.off || []).map(e => e.stylist))
+        setAvailableForDate(date)
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setWorkingStylists(stylists)
+        setOffStylists([])
+        setAvailableForDate(date)
+      })
+    return () => controller.abort()
+  }, [date, stylists])
+
   const serviceById = (id) => services.find(s => String(s.id) === String(id))
   const stylistById = (id) => stylists.find(s => String(s.id) === String(id))
 
+  // Own-chair rule: a stylist-role login books their own chair — the backend
+  // enforces the same rule on /bookings/admin/create. No picker: the stylist
+  // is derived from the session, never picked.
+  const ownChair = role === 'stylist' && !!stylistId
+  const ownStylist = ownChair ? stylistById(stylistId) : null
+
   // Stylists who can take the picked service — specialists first; if the
   // category has no specialist at all, everyone qualifies (backend fallback).
+  // Off stylists are excluded for the chosen date; a stylist account only
+  // ever sees their own chair.
   const eligibleStylists = useMemo(() => {
+    let pool = availableForDate === date ? workingStylists : stylists
+    if (role === 'stylist') {
+      const mine = pool.filter(s => String(s.id) === String(stylistId))
+      pool = mine.length > 0 ? mine : []
+    }
     const svc = serviceById(pickService)
-    if (!svc) return stylists
-    const specialists = stylists.filter(s => (s.categories || []).includes(svc.category))
-    return specialists.length > 0 ? specialists : stylists
-  }, [pickService, services, stylists])
+    if (!svc) return pool
+    const specialists = pool.filter(s => (s.categories || []).includes(svc.category))
+    return specialists.length > 0 ? specialists : pool
+  }, [pickService, services, stylists, workingStylists, availableForDate, date, role, stylistId])
 
   // Reset the stylist pick when the service changes and the pick is ineligible
   useEffect(() => { setPickStylist('') }, [pickService])
+
+  // Date changes prune the cart — an item whose stylist is off (or whose
+  // service is unbookable that day) would 409 the whole booking at submit.
+  // Mirrors the user panel's date-prune effect.
+  useEffect(() => {
+    if (availableForDate !== date) return
+    const workingIds = new Set(workingStylists.map(s => String(s.id)))
+    const workingCats = new Set(workingStylists.flatMap(s => s.categories || []))
+    const allCats = new Set(stylists.flatMap(s => s.categories || []))
+    const keep = items.filter(i =>
+      workingIds.has(String(i.stylist_id)) &&
+      (!allCats.has(i.service?.category) || workingCats.has(i.service?.category)))
+    const picked = serviceById(pickService)
+    const pickSvcBad = picked && allCats.has(picked.category) && !workingCats.has(picked.category)
+    const pickStyBad = pickStylist && !workingIds.has(String(pickStylist))
+    if (keep.length === items.length && !pickSvcBad && !pickStyBad) return
+    if (keep.length !== items.length) setItems(keep)
+    if (pickSvcBad) { setPickService(''); setPickStylist('') }
+    else if (pickStyBad) setPickStylist('')
+  }, [date, availableForDate, workingStylists, stylists, items, pickService, pickStylist])
+
+  // Services bookable on the chosen date — a service whose category has
+  // specialists on the roster but NONE working today is hidden (mirrors the
+  // customer wizard). Categories with no specialist at all stay, so the
+  // any-stylist fallback still has something to serve.
+  const bookableServices = useMemo(() => {
+    if (availableForDate !== date) return services
+    const workingCats = new Set(workingStylists.flatMap(s => s.categories || []))
+    const allCats = new Set(stylists.flatMap(s => s.categories || []))
+    return services.filter(s => !allCats.has(s.category) || workingCats.has(s.category))
+  }, [services, date, availableForDate, workingStylists, stylists])
 
   // Service list filtered by audience + search + category, then sorted —
   // mirrors the user panel's ServiceList pipeline ("Recommended" = most
   // popular first; ties keep catalog order, same as the user panel).
   const filteredServices = useMemo(() => {
-    let list = services.filter(s => matchesAudience(audience, s))
+    let list = bookableServices.filter(s => matchesAudience(audience, s))
     if (audience !== 'kids' && svcCategory !== 'all') {
       list = list.filter(s => s.category === svcCategory)
     }
@@ -296,7 +415,7 @@ export default function NewAppointment() {
       default: sorted.sort((a, b) => (b.popularity ?? 50) - (a.popularity ?? 50))
     }
     return sorted
-  }, [services, audience, svcCategory, svcQuery, svcSort])
+  }, [bookableServices, audience, svcCategory, svcQuery, svcSort])
 
   // Dropdown option groups — kids split into For boys / For girls (same
   // grouping the old <optgroup>s had); everyone else is one flat list.
@@ -315,18 +434,18 @@ export default function NewAppointment() {
   // Per-tab counts so the admin sees how many services live in each
   // category before tapping (adult flow only).
   const tabCounts = useMemo(() => {
-    const base = services.filter(s => matchesAudience(audience, s))
+    const base = bookableServices.filter(s => matchesAudience(audience, s))
     const counts = { all: base.length }
     for (const t of CATEGORY_TABS) {
       if (t.id === 'all') continue
       counts[t.id] = base.filter(s => s.category === t.id).length
     }
     return counts
-  }, [services, audience])
+  }, [bookableServices, audience])
 
   const addItem = () => {
     const svc = serviceById(pickService)
-    const sty = stylistById(pickStylist)
+    const sty = ownChair ? ownStylist : stylistById(pickStylist)
     if (!svc || !sty) {
       toast.error('Pick a service and a stylist first')
       return
@@ -378,7 +497,9 @@ export default function NewAppointment() {
     setStart(null)
     Promise.all(itemStylistIds.map(id =>
       client.get(`/availability/?stylist_id=${id}&date=${date}`, { signal: controller.signal })
-        .then(r => [id, r.data.busy || []])
+        // Defensive: an off stylist reports busy=[] — treat it as a full-day
+        // block so the transient before the prune effect never shows free slots.
+        .then(r => [id, r.data.stylist_off ? [{ start: '10:00', end: '21:00' }] : (r.data.busy || [])])
         .catch(() => [id, []])
     )).then(pairs => {
       if (!controller.signal.aborted) setAvail(Object.fromEntries(pairs))
@@ -427,10 +548,22 @@ export default function NewAppointment() {
 
   // 10-min booking cutoff for today — mirrors the backend freshness guard:
   // a slot is bookable until 10 minutes before it starts (10:00 closes at
-  // 09:50). With the walk-in override ON, started/passed slots stay
-  // selectable (backend receives ignore_cutoff=true).
+  // 09:50). The ONE exception: the day's last slot (20:00) stays bookable
+  // until 20:15, no override needed. With the walk-in override ON the ONLY
+  // other unlocked past slot is the one currently in progress (12:16 →
+  // 12:00) — earlier passed slots stay locked (backend receives
+  // ignore_cutoff=true).
   const isToday = date === istToday()
-  const isPassed = (t) => isToday && !ignoreCutoff && toMins(t) - istNowMins() < 10
+  const LAST_SLOT = ALL_SLOTS[ALL_SLOTS.length - 1]
+  const currentSlotStart = Math.floor(istNowMins() / 60) * 60
+  const isPassed = (t) => {
+    if (!isToday) return false
+    if (t === LAST_SLOT) return istNowMins() >= 20 * 60 + 15
+    const tMin = toMins(t)
+    if (tMin - istNowMins() >= 10) return false // comfortably in the future
+    // Inside the cutoff window: override unlocks exactly the current slot.
+    return !ignoreCutoff || tMin !== currentSlotStart
+  }
 
   // "Struck-through times are already booked" helper — shown when at least
   // one slot is booked out (as opposed to not fitting before closing).
@@ -472,9 +605,11 @@ export default function NewAppointment() {
         {/* Header */}
         <div className="mb-8 flex items-center justify-between gap-4">
           <div>
-            <p className="text-gold-400 text-xs font-medium tracking-widest uppercase mb-2">Admin Panel</p>
+            <p className="text-xs font-medium tracking-widest uppercase mb-2" style={{ color: role === 'stylist' ? '#34d399' : '#c9a84c' }}>
+              {role === 'stylist' ? `Your Chair · ${user?.name || 'Stylist'}` : 'Admin Panel'}
+            </p>
             <h1 className="font-display text-4xl text-cream">New Appointment</h1>
-            <div className="w-20 h-0.5 mt-4" style={{ background: 'linear-gradient(90deg, #c9a84c, transparent)' }} />
+            <div className="w-20 h-0.5 mt-4" style={{ background: role === 'stylist' ? 'linear-gradient(90deg, #34d399, transparent)' : 'linear-gradient(90deg, #c9a84c, transparent)' }} />
           </div>
           <Link to="/" className="btn-outline !px-5 !py-2.5 text-sm inline-flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" /> Dashboard
@@ -515,6 +650,13 @@ export default function NewAppointment() {
                 <p className="text-emerald-500 text-[11px] mt-1.5">
                   Existing customers are matched by number — new ones get an account automatically.
                 </p>
+                {matchedCustomer && (
+                  <p className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full border border-gold-500/50 bg-gold-500/10 text-gold-400 text-[11px]">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Known customer · {matchedCustomer.name || 'Unnamed'}
+                    {matchedCustomer.email && ` · ${matchedCustomer.email}`}
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-4">
@@ -533,6 +675,34 @@ export default function NewAppointment() {
                 Used to send a calendar invite when the appointment is confirmed.
               </p>
             </div>
+          </div>
+
+          {/* Date — picked before services so availability, working stylists
+              and bookable services resolve for the right day. Flow:
+              Whom → Date → Service → Stylist → Slot → Confirm. */}
+          <div className="glass-card p-6">
+            <h2 className="font-display text-xl text-cream mb-5 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-gold-400" /> Date
+            </h2>
+
+            <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="wa-date">Date</label>
+            <input
+              type="date"
+              id="wa-date"
+              value={date}
+              min={minBookableDate()}
+              onChange={e => setDate(e.target.value)}
+              className="luxury-input max-w-xs"
+            />
+
+            {availableForDate === date && offStylists.length > 0 && (
+              <div className="rounded-xl border border-amber-800/50 bg-amber-900/20 px-4 py-2.5 mt-4 flex items-start gap-2">
+                <CalendarOff className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-amber-400 text-xs">
+                  {offStylists.map(s => s.name).join(' & ')} {offStylists.length > 1 ? 'are' : 'is'} off on {date} — their services are hidden and they can't be booked.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Services — z-10 keeps the open dropdown menu above the Schedule
@@ -616,7 +786,7 @@ export default function NewAppointment() {
                 Add service → Now pick a stylist → Confirm <service> ·
                 <stylist>. The label always names the next action; the gold
                 state is the explicit "done" step. */}
-            <div className="grid gap-3 sm:grid-cols-2 mb-3">
+            <div className={`grid gap-3 mb-3 ${ownChair ? '' : 'sm:grid-cols-2'}`}>
               <Dropdown
                 ariaLabel="Service"
                 placeholder={audience ? 'Select service…' : 'Pick an audience first…'}
@@ -625,14 +795,16 @@ export default function NewAppointment() {
                 onChange={setPickService}
                 groups={serviceGroups}
               />
-              <Dropdown
-                ariaLabel="Stylist"
-                placeholder="Select stylist…"
-                disabled={!pickService}
-                value={pickStylist}
-                onChange={setPickStylist}
-                groups={[{ label: '', options: eligibleStylists.map(s => ({ value: s.id, label: s.name })) }]}
-              />
+              {!ownChair && (
+                <Dropdown
+                  ariaLabel="Stylist"
+                  placeholder="Select stylist…"
+                  disabled={!pickService}
+                  value={pickStylist}
+                  onChange={setPickStylist}
+                  groups={[{ label: '', options: eligibleStylists.map(s => ({ value: s.id, label: s.name })) }]}
+                />
+              )}
             </div>
 
             {/* 200ms fade between button states (state swaps are user-paced,
@@ -647,7 +819,7 @@ export default function NewAppointment() {
                 >
                   <Plus className="w-4 h-4" /> Add service
                 </button>
-              ) : !pickStylist ? (
+              ) : !pickStylist && !ownChair ? (
                 <button
                   type="button"
                   disabled
@@ -662,7 +834,8 @@ export default function NewAppointment() {
                   className="btn-gold w-full !py-2.5 text-sm inline-flex items-center justify-center gap-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  Confirm {serviceById(pickService)?.name} · {stylistById(pickStylist)?.name}
+                  Confirm {serviceById(pickService)?.name}
+                  {ownChair ? ` · ${user?.name || 'you'}` : ` · ${stylistById(pickStylist)?.name}`}
                 </button>
               )}
             </div>
@@ -698,21 +871,11 @@ export default function NewAppointment() {
             )}
           </div>
 
-          {/* Schedule */}
+          {/* Schedule — start-time slot grid for the date picked above */}
           <div className="glass-card p-6">
             <h2 className="font-display text-xl text-cream mb-5 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-gold-400" /> Schedule
+              <Calendar className="w-5 h-5 text-gold-400" /> Time slot
             </h2>
-
-            <label className="block text-xs text-emerald-300 mb-1.5" htmlFor="wa-date">Date</label>
-            <input
-              type="date"
-              id="wa-date"
-              value={date}
-              min={istToday()}
-              onChange={e => setDate(e.target.value)}
-              className="luxury-input mb-5 max-w-xs"
-            />
 
             <label className="block text-xs text-emerald-300 mb-2" htmlFor="wa-start">Start time</label>
             {items.length === 0 ? (
@@ -738,7 +901,8 @@ export default function NewAppointment() {
                     const fitsClosing = idx + blockSlots <= ALL_SLOTS.length
                     const passed = isPassed(t)
                     // Late = past the 10-min cutoff but seatable via override.
-                    const late = !passed && isToday && toMins(t) - istNowMins() < 10
+                    // The last slot's 20:15 grace needs no override — not "late".
+                    const late = !passed && t !== LAST_SLOT && isToday && toMins(t) - istNowMins() < 10
                     // Strike-through = already booked; dimmed without strike
                     // = won't fit before closing / already passed.
                     const taken = fitsClosing && !passed && !viableStarts.has(t)
@@ -753,7 +917,9 @@ export default function NewAppointment() {
                         title={taken
                           ? 'Already booked'
                           : passed
-                            ? 'Booking closed — starts in under 10 minutes (turn on Walk-in override to seat anyway)'
+                            ? (t === LAST_SLOT
+                              ? 'Booking closed — the 8:00 PM slot accepts bookings only until 8:15 PM'
+                              : 'Booking closed — starts in under 10 minutes (turn on Walk-in override to seat anyway)')
                             : late
                               ? 'Late seating — walk-in override active'
                               : !fitsClosing
@@ -815,7 +981,7 @@ export default function NewAppointment() {
               </>
             )}
 
-            {/* Walk-in override — seat a customer in a started/passed slot */}
+            {/* Walk-in override — seat a customer in the slot in progress */}
             <label className="flex items-center gap-3 mt-6 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -826,7 +992,7 @@ export default function NewAppointment() {
               <span className="text-cream text-sm inline-flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-amber-400" />
                 Walk-in override
-                <span className="text-amber-400/80 text-xs">(allow booking a slot that already started today)</span>
+                <span className="text-amber-400/80 text-xs">(unlock only the current hour's slot today)</span>
               </span>
             </label>
 

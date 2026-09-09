@@ -280,14 +280,15 @@ class SectionTitle extends StatelessWidget {
 /// Small uppercase gold eyebrow, like "text-gold-400 tracking-widest uppercase".
 class Eyebrow extends StatelessWidget {
   final String text;
-  const Eyebrow(this.text, {super.key});
+  final Color? color;
+  const Eyebrow(this.text, {super.key, this.color});
 
   @override
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: const TextStyle(
-        color: gold400,
+      style: TextStyle(
+        color: color ?? gold400,
         fontSize: 11,
         fontWeight: FontWeight.w500,
         letterSpacing: 3,
@@ -448,6 +449,108 @@ String fmtDateTime(String? iso) {
   return '${dt.day} ${months[dt.month - 1]}, $h12:${dt.minute.toString().padLeft(2, '0')} $suffix';
 }
 
+/// Date → "03/09/2026" — the Indian dd/MM/yyyy display format. The backend
+/// still speaks yyyy-MM-dd; convert only at the UI boundary.
+String fmtDateIndian(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}/'
+    '${d.month.toString().padLeft(2, '0')}/'
+    '${d.year.toString().padLeft(4, '0')}';
+
+/// "2026-09-03" → "03/09/2026" (returns the raw string when unparsable).
+String fmtDateStrIndian(String? iso) {
+  final d = iso == null ? null : DateTime.tryParse(iso);
+  return d == null ? (iso ?? '—') : fmtDateIndian(d);
+}
+
+/// DateTime → backend "2026-09-03" (the ISO date string every endpoint wants).
+String isoDate(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
+
+/// IST "now" as minutes since midnight — matches the backend's freshness
+/// math (bookings.py) which also runs on IST.
+int istNowMins() {
+  final nowIst = DateTime.now().toUtc().add(
+    const Duration(hours: 5, minutes: 30),
+  );
+  return nowIst.hour * 60 + nowIst.minute;
+}
+
+/// The start (in IST minutes) of the hour-slot currently in progress —
+/// 12:16 → 720 (12:00). Used by the walk-in override to unlock exactly
+/// one slot: the hour the customer is being seated in.
+int currentSlotStartMins() => (istNowMins() ~/ 60) * 60;
+
+/// Shared themed date picker — every showDatePicker call site goes through
+/// this so the dialog is consistently styled for the dark Ayra theme
+/// (readable day cells, gold selection circle, visible confirm buttons).
+Future<DateTime?> pickAyraDate(
+  BuildContext context, {
+  required DateTime initialDate,
+  required DateTime firstDate,
+  required DateTime lastDate,
+  String? helpText,
+}) {
+  return showDatePicker(
+    context: context,
+    initialDate: initialDate,
+    firstDate: firstDate,
+    lastDate: lastDate,
+    helpText: helpText,
+    builder: (context, child) {
+      return Theme(
+        data: Theme.of(context).copyWith(
+          datePickerTheme: DatePickerThemeData(
+            backgroundColor: emerald900,
+            headerBackgroundColor: emerald950,
+            headerForegroundColor: cream,
+            dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) return emerald950;
+              if (states.contains(WidgetState.disabled)) return emerald700;
+              return cream;
+            }),
+            dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) return gold500;
+              return Colors.transparent;
+            }),
+            todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) return emerald950;
+              return gold400;
+            }),
+            todayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) return gold500;
+              return Colors.transparent;
+            }),
+            todayBorder: const BorderSide(color: gold500),
+            yearForegroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) return emerald950;
+              return cream;
+            }),
+            yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) return gold500;
+              return Colors.transparent;
+            }),
+            dividerColor: emerald700,
+            rangePickerBackgroundColor: emerald900,
+            rangePickerHeaderForegroundColor: cream,
+            cancelButtonStyle: ButtonStyle(
+              foregroundColor: WidgetStateProperty.all(emerald300),
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(foregroundColor: gold400),
+          ),
+        ),
+        child: child ?? const SizedBox.shrink(),
+      );
+    },
+  );
+}
+
 /// IST "today" — DateTime.now() on the device is local; the salon runs on IST.
 /// Mirrors istToday() in the web panel.
 String istToday() {
@@ -456,6 +559,29 @@ String istToday() {
       '${now.month.toString().padLeft(2, '0')}-'
       '${now.day.toString().padLeft(2, '0')}';
 }
+
+/// Bug 8: past the 20:45 IST day-flip the salon day is over — booking dates
+/// default to (and can't be earlier than) tomorrow. Mirrors DAY_FLIP_MINS on
+/// the web panels.
+const int dayFlipMins = 20 * 60 + 45;
+
+bool istDayFlipped() => istNowMins() >= dayFlipMins;
+
+/// IST "tomorrow" — same UTC-shift trick as istToday (IST has no DST, so a
+/// plain +1 day on the shifted clock is calendar-safe).
+String istTomorrow() {
+  final now = DateTime.now()
+      .toUtc()
+      .add(const Duration(hours: 5, minutes: 30))
+      .add(const Duration(days: 1));
+  return '${now.year.toString().padLeft(4, '0')}-'
+      '${now.month.toString().padLeft(2, '0')}-'
+      '${now.day.toString().padLeft(2, '0')}';
+}
+
+/// Earliest date a booking can target: today, or tomorrow once the day has
+/// flipped at 20:45 IST. Mirrors minBookableDate() on the web panels.
+String minBookableDate() => istDayFlipped() ? istTomorrow() : istToday();
 
 /// "₹1,250" with Indian grouping.
 String inr(num v) {

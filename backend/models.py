@@ -25,6 +25,17 @@ class User(Document):
     phone: Optional[str] = None        # E.164 — used for WhatsApp notifications
     gender: Optional[str] = None       # "men" | "women" | None — booking UI default only
     is_admin: bool = False
+    # Staff link: set on stylist staff accounts (raja@ / ajay@) and points at
+    # their Stylist doc. Role is derived: owner = is_admin + no stylist_id;
+    # stylist = is_admin + stylist_id. Stylists see their OWN schedule/approvals
+    # and can act only on their own bookings; the economy dashboard is shared.
+    stylist_id: Optional[PydanticObjectId] = None
+
+    @property
+    def role(self) -> str:
+        if self.stylist_id:
+            return "stylist"
+        return "owner" if self.is_admin else "customer"
 
     class Settings:
         name = "users"
@@ -57,6 +68,53 @@ class Stylist(Document):
 
     class Settings:
         name = "stylists"
+
+
+class TimeOff(Document):
+    """A stylist's marked-unavailable date range (inclusive). Self-service:
+    a stylist marks only their own ranges from the staff dash. Creating is
+    BLOCKED while the stylist still has active bookings in the range — the
+    API returns the conflicts so the UI can list them for cancel/reschedule."""
+    stylist_id: PydanticObjectId
+    start: str                          # "YYYY-MM-DD" inclusive
+    end: str                            # "YYYY-MM-DD" inclusive
+    reason: Optional[str] = None
+    created_by: Optional[PydanticObjectId] = None   # staff User who marked it
+    created_at: datetime = Field(default_factory=_now)
+
+    class Settings:
+        name = "stylist_time_off"
+        indexes = ["stylist_id", "start"]
+
+
+class Expense(Document):
+    """Manual money-out entry for the shared economy dashboard (rent, products,
+    salaries, ...). Income is derived from confirmed bookings; expenses live here."""
+    date: str                           # "YYYY-MM-DD"
+    category: str                       # see routes.economy.EXPENSE_CATEGORIES
+    description: Optional[str] = None
+    amount: float
+    created_by: Optional[PydanticObjectId] = None
+    created_at: datetime = Field(default_factory=_now)
+
+    class Settings:
+        name = "expenses"
+        indexes = ["date", "category"]
+
+
+class BudgetTarget(Document):
+    """Monthly budget goal per expense category ("2026-09" + "products" -> Rs).
+    One doc per (month, category); the economy dash renders spent-vs-target."""
+    month: str                          # "YYYY-MM"
+    category: str
+    amount: float
+
+    class Settings:
+        name = "budget_targets"
+        indexes = [
+            "month",
+            IndexModel([("month", 1), ("category", 1)], unique=True, name="unique_month_category"),
+        ]
 
 
 class BookingSlot(Document):
@@ -151,3 +209,21 @@ class Notification(Document):
     class Settings:
         name = "notifications"
         indexes = ["booking_id", "user_id"]
+
+
+class DeviceToken(Document):
+    """FCM registration token for a staff device (Ayra Dashboard app).
+    One doc per (user, device token). Only stylist-role users register —
+    new-booking alerts target the assigned stylist's devices, never owners.
+    Tokens are pruned when FCM reports them unregistered (app uninstalled)."""
+    user_id: PydanticObjectId           # staff User who logged in on the device
+    token: str                          # FCM registration token
+    platform: str = "android"
+    updated_at: datetime = Field(default_factory=_now)
+
+    class Settings:
+        name = "device_tokens"
+        indexes = [
+            "user_id",
+            IndexModel([("token", 1)], unique=True, name="unique_fcm_token"),
+        ]

@@ -3,10 +3,12 @@ from typing import List
 from datetime import datetime, timedelta, timezone
 from beanie import PydanticObjectId
 import models, schemas
-from auth import get_current_user, get_current_admin
+from auth import get_current_user, get_current_admin, can_act_on_booking
 from limiter import limiter
 from routes.availability import (ALL_SLOTS, BOOKING_CUTOFF_MINS, hm_to_mins,
-                                 mins_to_hm, slots_needed, intervals_overlap)
+                                 mins_to_hm, slots_needed, intervals_overlap,
+                                 slot_closed_for_today)
+from services.timeoff import stylist_is_off
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
@@ -111,6 +113,49 @@ async def write_notification(booking: models.Booking, user: models.User, kind: s
     ).insert()
 
 
+async def push_new_booking_alert(booking: models.Booking) -> None:
+    """Data-only FCM push to the assigned stylist's devices: a customer-app
+    booking is awaiting approval. Walk-ins (staff-entered) never alert — the
+    staff member who created it can simply tell the stylist. Never raises:
+    alert failure must not fail the booking."""
+    try:
+        import push as push_module
+        slots = await models.BookingSlot.find(
+            models.BookingSlot.booking_id == booking.id
+        ).sort(models.BookingSlot.sequence).to_list()
+        names = []
+        for s in slots:
+            svc = await models.Service.get(s.service_id)
+            if svc:
+                names.append(svc.name)
+        if not names:
+            for sid in booking.services:
+                svc = await models.Service.get(sid)
+                if svc:
+                    names.append(svc.name)
+        customer = await models.User.get(booking.user_id)
+        await push_module.send_to_stylist(booking.stylist_id, {
+            "type": "new_booking",
+            "booking_id": str(booking.id),
+            "customer_name": customer.name if customer else "Customer",
+            "services": " + ".join(names) or "Appointment",
+            "date": booking.date,
+            "time_slot": booking.time_slot or "",
+        })
+    except Exception as e:
+        print(f"push: new_booking alert skipped ({e})", flush=True)
+
+
+async def push_booking_resolved(booking: models.Booking) -> None:
+    """Silent signal to the stylist's devices: this pending booking is gone
+    (approved / declined / cancelled / TTL-expired) — cancel the alarm."""
+    try:
+        import push as push_module
+        await push_module.send_resolved(booking.stylist_id, booking.id)
+    except Exception as e:
+        print(f"push: booking_resolved skipped ({e})", flush=True)
+
+
 async def send_calendar_invite(booking: models.Booking, user: models.User,
                                kind: str, to_email: str = None) -> dict:
     """Email the .ics calendar invite for a booking lifecycle moment.
@@ -198,10 +243,11 @@ async def _resolve_and_check(items, date, time_slot, customer_id,
         raise HTTPException(status_code=400, detail="That date has already passed.")
     if date == today_ist and not ignore_cutoff:
         # Booking closes BOOKING_CUTOFF_MINS before the slot starts: the 10:00
-        # slot is bookable until 09:50, gone from 09:51 on.
-        slot_min = hm_to_mins(time_slot)
+        # slot is bookable until 09:50, gone from 09:51 on. The one exception
+        # is the day's last slot (20:00) — bookable until 20:15 (see
+        # slot_closed_for_today).
         now_min = now_ist.hour * 60 + now_ist.minute
-        if slot_min - now_min < BOOKING_CUTOFF_MINS:
+        if slot_closed_for_today(time_slot, now_min):
             raise HTTPException(
                 status_code=400,
                 detail=(f"Booking for this slot closes {BOOKING_CUTOFF_MINS} "
@@ -229,6 +275,13 @@ async def _resolve_and_check(items, date, time_slot, customer_id,
         stylist = await models.Stylist.get(item.stylist_id)
         if not stylist:
             raise HTTPException(status_code=404, detail=f"Stylist not found (item {i + 1}).")
+        # Time-off guard: a stylist who marked this date off cannot be booked
+        # on it (defensive — the wizard already hides off stylists per date).
+        if await stylist_is_off(stylist.id, date):
+            raise HTTPException(
+                status_code=409,
+                detail=f"{stylist.name} is unavailable on {date}. Pick another day or stylist.",
+            )
         # Category guard: enforce only when the category actually has a
         # specialist. If NO stylist handles it (rare fallback), any stylist
         # is accepted — mirrors the frontend's show-all-stylists fallback.
@@ -369,6 +422,10 @@ async def create_booking(
         f"confirmation from Ayra Unisex Salon.",
     )
 
+    # Alert the assigned stylist's devices (customer-app bookings only —
+    # this route IS the online path; walk-ins use /admin/create below).
+    await push_new_booking_alert(booking)
+
     return await serialize_booking(booking)
 
 
@@ -380,6 +437,16 @@ async def admin_create_booking(
 ):
     import re
     from auth import get_password_hash
+
+    # Ops separation: a stylist staff account enters walk-ins for their OWN
+    # chair only; the owner (no stylist link) books anyone.
+    if _admin.stylist_id:
+        foreign = [it for it in data.items if str(it.stylist_id) != str(_admin.stylist_id)]
+        if foreign:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only create appointments assigned to yourself.",
+            )
 
     digits = "".join(ch for ch in (data.phone or "") if ch.isdigit())
     if len(digits) < 10:
@@ -541,8 +608,14 @@ async def cancel_booking(
     booking = await models.Booking.get(booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if booking.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if booking.user_id != current_user.id:
+        # Stylist staff cancel only bookings in their own chair; the owner
+        # (is_admin without stylist link) cancels anything.
+        if not current_user.is_admin or (
+            current_user.stylist_id
+            and not await can_act_on_booking(current_user, booking)
+        ):
+            raise HTTPException(status_code=403, detail="Not authorized")
     if booking.status in (models.BookingStatus.cancelled, models.BookingStatus.declined):
         return  # already terminal
 
@@ -568,6 +641,8 @@ async def cancel_booking(
         # remove (declined / TTL-expired bookings land here too).
         if booking.calendar_uid:
             await send_calendar_invite(booking, user, "cancelled")
+    # The stylist's alarm for this pending booking must stop too.
+    await push_booking_resolved(booking)
 
 
 # ── Admin: approve / decline pending bookings ─────────────────────────────────
@@ -579,6 +654,8 @@ async def approve_booking(
     booking = await models.Booking.get(booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if not await can_act_on_booking(_admin, booking):
+        raise HTTPException(status_code=403, detail="You can only manage your own bookings.")
     from_status = booking.status if isinstance(booking.status, str) else booking.status.value
     if booking.status != models.BookingStatus.pending:
         raise HTTPException(status_code=409, detail=f"Only pending bookings can be approved (current: {from_status}).")
@@ -599,6 +676,7 @@ async def approve_booking(
             f"Good news {user.name}! Your Ayra Unisex Salon booking on {booking.date} is confirmed. See you soon!",
         )
         await send_calendar_invite(booking, user, "confirmed")
+    await push_booking_resolved(booking)
     return await serialize_booking(booking)
 
 
@@ -610,6 +688,8 @@ async def decline_booking(
     booking = await models.Booking.get(booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if not await can_act_on_booking(_admin, booking):
+        raise HTTPException(status_code=403, detail="You can only manage your own bookings.")
     from_status = booking.status if isinstance(booking.status, str) else booking.status.value
     if booking.status != models.BookingStatus.pending:
         raise HTTPException(status_code=409, detail=f"Only pending bookings can be declined (current: {from_status}).")
@@ -630,7 +710,26 @@ async def decline_booking(
             f"Your Ayra Unisex Salon booking request on {booking.date} could not be accommodated. "
             f"Call us to find an alternative slot.",
         )
+    await push_booking_resolved(booking)
     return await serialize_booking(booking)
+
+
+# ── Lightweight pending count — polling fallback for the Dashboard app ────────
+@router.get("/pending-count")
+async def pending_count(
+    _admin: models.User = Depends(get_current_admin),
+):
+    """Cheap poll target for the Flutter app's in-app alert fallback:
+    {count, latest_id} for pending bookings. Stylists scope to their own
+    chair; the owner sees the salon-wide queue."""
+    query = models.Booking.find(models.Booking.status == models.BookingStatus.pending)
+    if _admin.stylist_id:
+        query = query.find(models.Booking.stylist_id == _admin.stylist_id)
+    pendings = await query.sort(-models.Booking.created_at).to_list()
+    return {
+        "count": len(pendings),
+        "latest_id": str(pendings[0].id) if pendings else None,
+    }
 
 
 # ── Reschedule: admin proposes, customer accepts/declines ─────────────────────
@@ -643,6 +742,8 @@ async def propose_reschedule(
     booking = await models.Booking.get(booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if not await can_act_on_booking(_admin, booking):
+        raise HTTPException(status_code=403, detail="You can only manage your own bookings.")
     from_status = booking.status if isinstance(booking.status, str) else booking.status.value
     if booking.status not in (models.BookingStatus.pending, models.BookingStatus.confirmed):
         raise HTTPException(status_code=409, detail=f"Cannot reschedule a {from_status} booking.")
@@ -675,14 +776,14 @@ async def propose_reschedule(
     # ── Freshness guard (IST): never propose a slot in the past ───────────────
     # Reschedule is strictly future-facing: the 10-min booking cutoff applies
     # with no walk-in override (started-slot seating belongs to admin create).
+    # The last slot (20:00) keeps its one exception — open until 20:15.
     now_ist = _ist_now()
     today_ist = now_ist.date().isoformat()
     if body.date < today_ist:
         raise HTTPException(status_code=400, detail="That date has already passed.")
     if body.date == today_ist:
-        slot_min = hm_to_mins(body.time_slot)
         now_min = now_ist.hour * 60 + now_ist.minute
-        if slot_min - now_min < BOOKING_CUTOFF_MINS:
+        if slot_closed_for_today(body.time_slot, now_min):
             raise HTTPException(
                 status_code=400,
                 detail=(f"Booking for this slot closes {BOOKING_CUTOFF_MINS} "
@@ -696,6 +797,21 @@ async def propose_reschedule(
         dur = row.duration_mins or 60
         windows.append((row, cursor, cursor + dur))
         cursor += dur
+
+    # Time-off guard: every stylist involved must be working on the target
+    # date — a proposal into someone's marked-off day is rejected up front.
+    checked_stylists = set()
+    for row_obj, _, _ in windows:
+        if row_obj.stylist_id in checked_stylists:
+            continue
+        checked_stylists.add(row_obj.stylist_id)
+        if await stylist_is_off(row_obj.stylist_id, body.date):
+            stylist = await models.Stylist.get(row_obj.stylist_id)
+            name = stylist.name if stylist else "The stylist"
+            raise HTTPException(
+                status_code=409,
+                detail=f"{name} is unavailable on {body.date}. Pick another day.",
+            )
 
     # Conflict checks per window's OWN stylist + the customer's other bookings,
     # excluding this booking's own rows (they all get replaced below).
@@ -772,8 +888,12 @@ async def accept_reschedule(
     booking = await models.Booking.get(booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if booking.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if booking.user_id != current_user.id:
+        if not current_user.is_admin or (
+            current_user.stylist_id
+            and not await can_act_on_booking(current_user, booking)
+        ):
+            raise HTTPException(status_code=403, detail="Not authorized")
     from_status = booking.status if isinstance(booking.status, str) else booking.status.value
     if booking.status != models.BookingStatus.awaiting_reschedule:
         raise HTTPException(status_code=409, detail="No reschedule proposal pending.")
@@ -808,8 +928,12 @@ async def decline_reschedule(
     booking = await models.Booking.get(booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if booking.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if booking.user_id != current_user.id:
+        if not current_user.is_admin or (
+            current_user.stylist_id
+            and not await can_act_on_booking(current_user, booking)
+        ):
+            raise HTTPException(status_code=403, detail="Not authorized")
     from_status = booking.status if isinstance(booking.status, str) else booking.status.value
     if booking.status != models.BookingStatus.awaiting_reschedule:
         raise HTTPException(status_code=409, detail="No reschedule proposal pending.")
@@ -843,15 +967,27 @@ def booked_times(conflict_slot, date):
 @router.get("/admin/all", response_model=List[schemas.BookingOut])
 async def get_all_bookings(
     date: str = None,
-    _admin: models.User = Depends(get_current_admin),
+    admin: models.User = Depends(get_current_admin),
 ):
+    """Ops separation: stylist staff accounts get THEIR bookings only (primary
+    stylist or any slot row); the owner sees everything."""
+    query = {}
     if date:
-        bookings = await models.Booking.find(
-            models.Booking.date == date
-        ).sort(-models.Booking.created_at).to_list()
+        query["date"] = date
+    if admin.stylist_id:
+        own_slots = await models.BookingSlot.find(
+            models.BookingSlot.stylist_id == admin.stylist_id
+        ).to_list()
+        own_ids = list({s.booking_id for s in own_slots})
+        query["$or"] = [
+            {"stylist_id": admin.stylist_id},
+            {"_id": {"$in": own_ids}},
+        ]
+    if query:
+        bookings = await models.Booking.find(query).sort(
+            -models.Booking.created_at).to_list()
     else:
         bookings = await models.Booking.find_all().sort(
-            -models.Booking.created_at
-        ).to_list()
+            -models.Booking.created_at).to_list()
 
     return [await serialize_booking(b) for b in bookings]

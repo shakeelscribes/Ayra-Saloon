@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import models, schemas
 from beanie import PydanticObjectId
 from limiter import limiter
+from services.timeoff import stylist_is_off
 
 router = APIRouter(prefix="/availability", tags=["Availability"])
 
@@ -25,6 +26,23 @@ GRACE_MINS = 30
 # (the 10:00 slot disappears at 09:50). Enforced here for the shared guard in
 # bookings.py and mirrored by every client-side slot grid.
 BOOKING_CUTOFF_MINS = 10
+
+# The ONE exception: the day's last slot (20:00) stays bookable until 20:15
+# IST — 15 minutes past its start — so the salon can still seat a late
+# arrival in the final hour. Mirrored by every client-side slot grid.
+LAST_SLOT_CLOSE_MINS = 20 * 60 + 15  # 20:15 IST
+
+
+def slot_closed_for_today(time_slot: str, now_min: int) -> bool:
+    """True when `time_slot`'s booking window has shut for today.
+
+    `now_min` is minutes-since-midnight IST. Every slot closes
+    BOOKING_CUTOFF_MINS before its start; the last slot (20:00) instead
+    stays open until LAST_SLOT_CLOSE_MINS (20:15).
+    """
+    if time_slot == ALL_SLOTS[-1]:
+        return now_min >= LAST_SLOT_CLOSE_MINS
+    return hm_to_mins(time_slot) - now_min < BOOKING_CUTOFF_MINS
 
 
 def hm_to_mins(hm: str) -> int:
@@ -63,6 +81,13 @@ async def get_availability(
     # IS a booked interval [time_slot, time_slot + duration_mins). Rows carry
     # REAL start times (services run back-to-back), so a stylist's busy map is
     # a set of minute intervals, not whole hours.
+    is_off = await stylist_is_off(stylist_id, date)
+    if is_off:
+        # Marked off: no bookable slots at all. Busy stays empty — the UI
+        # keys off stylist_off and greys the whole day.
+        return schemas.AvailabilityResponse(
+            stylist_id=stylist_id, date=date, busy=[], stylist_off=True)
+
     query = [models.BookingSlot.stylist_id == stylist_id,
              models.BookingSlot.date == date]
     if exclude_booking_id:

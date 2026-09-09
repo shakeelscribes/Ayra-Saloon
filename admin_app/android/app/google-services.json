@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "883683200192",
+    "project_id": "ayrasalon-8f3ec",
+    "storage_bucket": "ayrasalon-8f3ec.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:883683200192:android:e773672e80705886c87125",
+        "android_client_info": {
+          "package_name": "com.ayrasaloon.dashboard"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCF8wMfigE_dWsl0a-o7wyjN8Mnx1Cxobc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

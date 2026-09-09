@@ -16,6 +16,10 @@ A complete booking platform for a working salon — customer website, staff pane
 | --- | --- |
 | ![Staff dashboard](docs/screenshots/admin-dashboard.png) | ![Staff schedule](docs/screenshots/admin-schedule.png) |
 
+| Stylist app — dashboard | Stylist app — schedule | Stylist app — WhatsApp log |
+| --- | --- | --- |
+| ![Stylist app dashboard](docs/screenshots/flutter-app-dashboard.png) | ![Stylist app schedule](docs/screenshots/flutter-app-schedule.png) | ![Stylist app WhatsApp](docs/screenshots/flutter-app-whatsapp.png) |
+
 ## What it does
 
 The salon takes bookings through the website. Every new booking lands on the assigned stylist's phone as an insistent, impossible-to-miss alert. The stylist approves or declines it from the chair; schedule, earnings and time-off live in the same app. Customers get email confirmations with calendar invites.

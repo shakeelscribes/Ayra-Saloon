@@ -4,6 +4,8 @@ A complete booking platform for a working salon — customer website, staff pane
 
 **Stack:** FastAPI · MongoDB · React 18 (Vite + Tailwind) · Flutter
 
+**Developer:** [Mohamed Shakeel](https://github.com/shakeelscribes) — designed and built the entire platform (backend, web, mobile). PRs reviewed by [Sri Thandapani](https://github.com/srithandapani).
+
 ## Screenshots
 
 | Customer site | Booking flow |
@@ -116,3 +118,8 @@ flutter run --dart-define=AYRA_HOST=<your-lan-ip>
 - ✅ In production use at the salon (customer site, staff panel, Flutter app on stylists' devices)
 - 🚧 VPS deployment of the backend in progress
 - 📋 `PLAN.md` and `RETREAT.md` document the build process and decisions
+
+## Credits
+
+- **[Mohamed Shakeel](https://github.com/shakeelscribes)** — lead developer. Built the entire infrastructure: FastAPI backend, customer site, staff panel, and the Flutter admin app.
+- **[Sri Thandapani](https://github.com/srithandapani)** — contributor and PR reviewer.
